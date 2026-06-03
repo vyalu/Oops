@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="ru" id="root-html">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oops! — вход</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"></noscript>
+<style>
+:root, :root[data-theme="dark"] {
+  --bg: #0a0a0a;
+  --bg-card: #111111;
+  --bg-elev: #161616;
+  --border: #1f1f1f;
+  --border-strong: #2a2a2a;
+  --text: #e4e4e4;
+  --text-bright: #fafafa;
+  --text-dim: #a1a1a1;
+  --text-mute: #6e6e6e;
+  --accent: #5ED0BD;
+  --accent-hover: #7ee0d0;
+  --accent-on: #001a14;
+  --accent-dim: rgba(94, 208, 189, 0.10);
+  --danger: #FA7080;
+}
+:root[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-card: #ffffff;
+  --bg-elev: #fafafa;
+  --border: #ececec;
+  --border-strong: #dcdcdc;
+  --text: #1a1a1a;
+  --text-bright: #000000;
+  --text-dim: #595959;
+  --text-mute: #8c8c8c;
+  --accent: #1a8576;
+  --accent-hover: #2a9c8a;
+  --accent-on: #ffffff;
+  --accent-dim: rgba(26, 133, 118, 0.08);
+  --danger: #c84a5e;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+body {
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+  padding: 20px;
+}
+.shell {
+  width: 100%; max-width: 360px;
+}
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 32px;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text-bright);
+}
+.brand-mark {
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  background: var(--accent);
+  color: var(--accent-on);
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 14px;
+}
+h1 {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--text-bright);
+  letter-spacing: -0.015em;
+}
+.subtitle {
+  font-size: 13px;
+  color: var(--text-mute);
+  margin-bottom: 28px;
+}
+form { display: flex; flex-direction: column; gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+input[type="text"], input[type="password"] {
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  padding: 9px 12px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  border-radius: 6px;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.error {
+  font-size: 13px;
+  color: var(--danger);
+  padding: 9px 12px;
+  border: 1px solid var(--danger);
+  background: rgba(250, 112, 128, 0.08);
+  border-radius: 6px;
+}
+.error.hidden { display: none; }
+button[type="submit"] {
+  margin-top: 6px;
+  background: var(--accent);
+  color: var(--accent-on);
+  border: 1px solid var(--accent);
+  padding: 10px 16px;
+  font-family: inherit;
+  font-weight: 500;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.12s, border-color 0.12s;
+}
+button[type="submit"]:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.hint {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-mute);
+}
+.hint code {
+  color: var(--text);
+  background: var(--bg-elev);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+.theme-toggle-login {
+  position: absolute; top: 20px; right: 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  width: 32px; height: 32px;
+  display: grid; place-items: center;
+  cursor: pointer;
+  color: var(--text-dim);
+  border-radius: 6px;
+  font-size: 14px;
+  transition: all 0.12s;
+}
+.theme-toggle-login:hover { color: var(--text); border-color: var(--border-strong); }
+</style>
+</head>
+<body>
+  <button class="theme-toggle-login" id="theme-toggle" title="Сменить тему">
+    <span id="theme-icon">☾</span>
+  </button>
+  <div class="shell">
+    <div class="brand">
+      <div class="brand-mark">O</div>
+      <span>Oops!</span>
+    </div>
+
+    <h1>Вход</h1>
+    <p class="subtitle">Учёт подписок организации</p>
+
+    <form id="login-form">
+      <div class="field">
+        <label for="username">Логин</label>
+        <input type="text" id="username" required autocomplete="username" autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Пароль</label>
+        <input type="password" id="password" required autocomplete="current-password">
+      </div>
+      <div id="error" class="error hidden"></div>
+      <button type="submit">Войти</button>
+    </form>
+
+    <div class="hint">
+      По умолчанию: <code>admin</code> / <code>admin</code>
+    </div>
+  </div>
+
+<script>
+const root = document.getElementById('root-html');
+const themeIcon = document.getElementById('theme-icon');
+const savedTheme = localStorage.getItem('oops-theme') || 'dark';
+root.setAttribute('data-theme', savedTheme);
+themeIcon.textContent = savedTheme === 'dark' ? '☾' : '☀';
+
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  const current = root.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  root.setAttribute('data-theme', next);
+  themeIcon.textContent = next === 'dark' ? '☾' : '☀';
+  localStorage.setItem('oops-theme', next);
+});
+
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('error');
+  errEl.classList.add('hidden');
+  try {
+    const r = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        username: document.getElementById('username').value,
+        password: document.getElementById('password').value
+      }),
+      credentials: 'include'
+    });
+    if (r.ok) {
+      window.location.href = '/';
+    } else {
+      const data = await r.json();
+      errEl.textContent = data.detail || 'Ошибка входа';
+      errEl.classList.remove('hidden');
+    }
+  } catch (err) {
+    errEl.textContent = 'Не удалось подключиться к серверу';
+    errEl.classList.remove('hidden');
+  }
+});
+</script>
+</body>
+</html>

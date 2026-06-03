@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="12" fill="#fff" stroke="#e0e0e0"/>
+  <g transform="translate(32 32)">
+    <path d="M-12 -7 L0 -14 L12 -7 L12 7 L0 14 L-12 7 Z" fill="none" stroke="#1F2937" stroke-width="2"/>
+    <text y="3" font-family="Arial, sans-serif" font-size="9" font-weight="800" fill="#1F2937" text-anchor="middle">СБП</text>
+  </g>
+</svg>

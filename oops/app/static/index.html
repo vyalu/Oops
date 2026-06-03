@@ -1,0 +1,1328 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oops!</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"></noscript>
+<link rel="stylesheet" href="/static/styles.css?v=__BUILD__">
+<script>
+  document.documentElement.setAttribute('data-theme', localStorage.getItem('oops-theme') || 'dark');
+</script>
+<script defer src="/static/vendor/alpine-collapse.min.js?v=__BUILD__"></script>
+<script defer src="/static/vendor/alpine.min.js?v=__BUILD__"></script>
+</head>
+<body x-data="app()" x-init="init()" x-cloak>
+
+<!-- Предупреждение: дефолтный пароль admin/admin -->
+<div x-show="currentUser?.must_change_password" class="pw-warning-banner">
+  <span>⚠️ Вы используете стандартный пароль <b>admin/admin</b>. Смените его для безопасности.</span>
+  <button class="btn btn-sm" @click="openChangePassword()">Сменить пароль</button>
+</div>
+
+<header class="app-header">
+  <div class="app-header-inner">
+    <div class="brand">
+      <div class="brand-mark">O</div>
+      <span>Oops!</span>
+    </div>
+    <div class="user-strip">
+      <button class="icon-btn" @click="toggleTheme()" :title="theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'">
+        <span x-text="theme === 'dark' ? '☾' : '☀'"></span>
+      </button>
+      <span class="user-name" x-text="currentUser?.full_name || currentUser?.username"></span>
+      <span class="user-role" :class="currentUser?.role" x-text="roleLabel(currentUser?.role)"></span>
+      <button class="btn-logout" @click="logout()">Выход</button>
+    </div>
+  </div>
+  <nav class="app-nav">
+    <template x-for="t in tabs" :key="t.id">
+      <button :class="{active: tab === t.id}" @click="tab = t.id">
+        <span x-text="t.label"></span>
+      </button>
+    </template>
+  </nav>
+</header>
+
+<main>
+
+  <!-- ===== СВОДКА ===== -->
+  <div x-show="tab === 'dashboard'">
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Сводка</h1>
+        <div class="meta">Аналитика расходов по организациям</div>
+      </div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat">
+        <div class="stat-label">Активных подписок</div>
+        <div class="stat-value tabular" x-text="stats.total_active || 0"></div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Ежемесячно</div>
+        <div class="stat-value tabular">
+          <span x-text="fmt(stats.total_monthly)"></span><span class="currency">₽</span>
+        </div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">В год</div>
+        <div class="stat-value tabular">
+          <span x-text="fmt(stats.total_yearly)"></span><span class="currency">₽</span>
+        </div>
+      </div>
+    </div>
+
+    <div x-show="stats.low_balance?.length" class="alert warn">
+      <div class="alert-head">
+        <h3>Низкий баланс</h3>
+        <span class="badge" x-text="stats.low_balance?.length"></span>
+      </div>
+      <div>
+        <template x-for="s in stats.low_balance" :key="s.id">
+          <div class="list-row" @click="openSubDetails(s.id)" style="border-bottom: 1px solid var(--border)">
+            <div class="dash-logo" x-show="s.logo_url">
+              <img :src="s.logo_url" alt="" @error="$event.target.parentElement.style.display='none'">
+            </div>
+            <div class="list-row-main">
+              <div class="list-row-name" x-text="s.name"></div>
+              <div class="list-row-meta" x-text="s.organization || '—'"></div>
+            </div>
+            <div class="list-row-right">
+              <div class="list-row-value" style="color: var(--warn)" x-text="fmt(s.balance) + ' ₽'"></div>
+              <div class="list-row-sub" x-text="'порог ' + fmt(s.threshold)"></div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <div x-show="stats.overdue?.length" class="alert danger">
+      <div class="alert-head">
+        <h3>Просроченные платежи</h3>
+        <span class="badge" x-text="stats.overdue?.length"></span>
+      </div>
+      <div>
+        <template x-for="s in stats.overdue" :key="s.id">
+          <div class="list-row" @click="openSubDetails(s.id)" style="border-bottom: 1px solid var(--border)">
+            <div class="dash-logo" x-show="s.logo_url">
+              <img :src="s.logo_url" alt="" @error="$event.target.parentElement.style.display='none'">
+            </div>
+            <div class="list-row-main">
+              <div class="list-row-name" x-text="s.name"></div>
+              <div class="list-row-meta" x-text="s.organization || '—'"></div>
+            </div>
+            <div class="list-row-right">
+              <div class="list-row-value" style="color: var(--danger)" x-text="fmt(s.price) + ' ' + s.currency"></div>
+              <div class="list-row-sub" x-text="s.next_payment"></div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <h3>Предстоящие платежи</h3>
+        <span class="count">ближайшие 30 дней</span>
+      </div>
+      <div class="grid-2col" x-show="stats.upcoming?.length">
+        <template x-for="s in stats.upcoming" :key="s.id">
+          <div class="list-row card-row" @click="openSubDetails(s.id)">
+            <div class="dash-logo" x-show="s.logo_url">
+              <img :src="s.logo_url" alt="" @error="$event.target.parentElement.style.display='none'">
+            </div>
+            <div class="list-row-main">
+              <div class="list-row-name" x-text="s.name"></div>
+              <div class="list-row-meta" x-text="s.organization || '—'"></div>
+            </div>
+            <div class="list-row-right">
+              <div class="list-row-value tabular" x-text="fmt(s.price) + ' ' + s.currency"></div>
+              <div class="list-row-sub" x-text="s.next_payment"></div>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div x-show="!stats.upcoming?.length" class="empty">
+        <div class="empty-icon">∅</div>
+        <div class="empty-msg">Нет предстоящих платежей</div>
+      </div>
+    </div>
+
+    <div class="section" x-show="stats.by_organization?.length">
+      <div class="section-header">
+        <h3>Расходы по организациям</h3>
+        <span class="count">₽ / месяц</span>
+      </div>
+      <div class="grid-2col">
+        <template x-for="o in stats.by_organization" :key="o.name">
+          <div class="list-row card-row" style="cursor:default">
+            <div class="list-row-main">
+              <div class="list-row-name" x-text="o.name"></div>
+            </div>
+            <div class="list-row-right">
+              <div class="list-row-value tabular" x-text="fmt(o.monthly) + ' ₽'"></div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ПОДПИСКИ ===== -->
+  <div x-show="tab === 'subscriptions'">
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Подписки</h1>
+        <div class="meta" x-text="filteredSubs.length + ' записей'"></div>
+      </div>
+      <button class="btn" @click="openSubForm()" x-show="canEdit()">+ Новая подписка</button>
+    </div>
+
+    <div class="filter-bar">
+      <input x-model="subSearch" placeholder="Поиск" style="flex:1">
+
+      <div class="filter-dropdown" @click.outside="filterMenuOpen = false">
+        <button class="btn btn-ghost" @click="filterMenuOpen = !filterMenuOpen" :class="{ 'has-active': filterOrg || filterType }">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M4 8h8M6 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          Фильтры
+          <span class="filter-count" x-show="filterOrg || filterType" x-text="(filterOrg?1:0)+(filterType?1:0)"></span>
+        </button>
+        <div class="filter-menu" x-show="filterMenuOpen" x-transition.opacity>
+          <div class="filter-menu-field">
+            <label class="form-label">Организация</label>
+            <select x-model="filterOrg">
+              <option value="">Все организации</option>
+              <template x-for="o in organizations" :key="o.id"><option :value="o.id" x-text="o.name"></option></template>
+            </select>
+          </div>
+          <div class="filter-menu-field">
+            <label class="form-label">Тип подписки</label>
+            <select x-model="filterType">
+              <option value="">Все типы</option>
+              <option value="recurring">Подписка</option>
+              <option value="balance">Счёт/Баланс</option>
+              <option value="onetime">Разовый платёж</option>
+            </select>
+          </div>
+          <button class="btn btn-ghost btn-sm" style="width:100%" @click="filterOrg=''; filterType=''" x-show="filterOrg || filterType">Сбросить фильтры</button>
+        </div>
+      </div>
+
+      <div class="view-switch">
+        <button :class="{active: subView === 'large'}" @click="setSubView('large')" title="Крупные значки">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/></svg>
+        </button>
+        <button :class="{active: subView === 'list'}" @click="setSubView('list')" title="Список (мелкие)">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><line x1="2" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="2" y1="12" x2="14" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="sub-grid" :class="'view-' + subView" x-show="filteredSubs.length">
+      <template x-for="s in filteredSubs" :key="s.id">
+        <div class="sub-card" :class="{ expanded: subView === 'list' && expandedSub === s.id }"
+             @click="subView === 'list' ? toggleExpand(s.id) : openSubDetails(s.id)">
+          <div class="sub-card-head">
+            <div class="sub-card-identity">
+              <div class="logo"
+                   :class="{ 'lg': subView === 'large', 'has-logo': !!(s.contractor?.logo_url || s.logo) }">
+                <img x-show="s.contractor?.logo_url || s.logo" :src="s.contractor?.logo_url || s.logo || ''" :alt="s.contractor?.name || s.name || ''" @error="$event.target.style.display='none'">
+                <span x-show="!(s.contractor?.logo_url || s.logo)" x-text="contractorInitials(s.contractor) || '·'"></span>
+              </div>
+              <div style="min-width:0; flex:1">
+                <div class="sub-card-name" x-text="s.name"></div>
+                <div class="sub-card-org" x-text="s.contractor?.name || s.organization?.name || '— без контрагента —'"></div>
+              </div>
+            </div>
+            <span class="sub-card-tag head-tag" :class="s.sub_type" x-text="typeLabel(s.sub_type)"></span>
+          </div>
+          <div class="sub-card-note" x-show="s.notes" x-text="s.notes"></div>
+          <span class="sub-card-tag list-tag" :class="s.sub_type" x-text="typeLabel(s.sub_type)"></span>
+          <div class="sub-card-foot">
+            <div class="foot-price-block" x-show="s.sub_type !== 'balance'">
+              <div class="sub-card-price tabular">
+                <span x-text="fmt(s.price)"></span><span class="currency" x-text="s.currency"></span>
+              </div>
+              <div class="sub-card-cycle" x-text="cycleLabel(s.cycle, s.frequency, s.sub_type)"></div>
+            </div>
+            <div class="sub-card-info">
+              <div class="balance-info">
+                <div class="balance-info-row" x-show="s.sub_type === 'balance'">
+                  <span class="balance-info-label">Баланс</span>
+                  <span class="balance-amt"><span x-text="fmt(s.balance)"></span><span class="currency" x-text="s.currency"></span></span>
+                </div>
+                <div class="balance-info-row" x-show="s.price > 0">
+                  <span class="balance-info-label">Платёж</span>
+                  <span class="balance-pay"><span x-text="fmt(s.price)"></span><span class="currency" x-text="s.currency"></span></span>
+                </div>
+              </div>
+            </div>
+            <svg class="sub-card-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+
+          <!-- Раскрывающаяся панель (только в режиме списка) -->
+          <div class="sub-card-expand" x-show="subView === 'list' && expandedSub === s.id" x-collapse @click.stop>
+            <div class="expand-grid">
+              <div class="expand-item" x-show="s.contractor?.name">
+                <span class="expand-key">Контрагент</span>
+                <span class="expand-val" x-text="s.contractor?.name"></span>
+              </div>
+              <div class="expand-item" x-show="s.organization?.name">
+                <span class="expand-key">Организация</span>
+                <span class="expand-val" x-text="s.organization?.name"></span>
+              </div>
+              <div class="expand-item">
+                <span class="expand-key">Категория</span>
+                <span class="expand-val" style="display:flex; align-items:center; gap:6px">
+                  <template x-if="s.category && isIconUrl(s.category.icon)">
+                    <img :src="s.category.icon" alt="" style="width:18px;height:18px;object-fit:contain">
+                  </template>
+                  <span x-text="s.category ? ((isIconUrl(s.category.icon) ? '' : (s.category.icon ? s.category.icon + ' ' : '')) + s.category.name) : 'Без категории'"></span>
+                </span>
+              </div>
+              <div class="expand-item" x-show="s.employee?.full_name">
+                <span class="expand-key">Ответственный</span>
+                <span class="expand-val" x-text="s.employee?.full_name"></span>
+              </div>
+              <div class="expand-item" x-show="(s.sub_type === 'recurring' || s.sub_type === 'balance') && s.billing_day">
+                <span class="expand-key">День списания</span>
+                <span class="expand-val" x-text="s.billing_day + ' числа'"></span>
+              </div>
+              <div class="expand-item" x-show="s.sub_type === 'onetime' && s.next_payment">
+                <span class="expand-key">Дата оплаты</span>
+                <span class="expand-val" x-text="formatDate(s.next_payment)"></span>
+              </div>
+              <div class="expand-item" x-show="s.sub_type === 'balance'">
+                <span class="expand-key">Баланс</span>
+                <span class="expand-val" x-text="fmt(s.balance) + ' ' + s.currency"></span>
+              </div>
+              <div class="expand-item" x-show="s.payment_method?.name">
+                <span class="expand-key">Оплата</span>
+                <span class="expand-val" x-text="s.payment_method?.name"></span>
+              </div>
+            </div>
+            <div class="expand-note" x-show="s.notes">
+              <span class="expand-key">Примечание</span>
+              <span class="expand-val" x-text="s.notes"></span>
+            </div>
+            <div class="expand-actions">
+              <button class="btn btn-sm btn-paid" @click.stop="markPaid(s)" x-show="canEdit() && !s.auto_renew && (s.sub_type === 'recurring' || s.sub_type === 'onetime')">✓ Отметить оплату</button>
+              <a x-show="s.url" :href="s.url" target="_blank" class="btn btn-ghost btn-sm" @click.stop>Открыть сайт</a>
+              <button class="btn btn-ghost btn-sm" @click.stop="openSubDetails(s.id)">Подробнее</button>
+              <button class="btn btn-ghost btn-sm" @click.stop="openSubForm(s); expandedSub = null" x-show="canEdit()">Редактировать</button>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+    <div x-show="!filteredSubs.length" class="empty">
+      <div class="empty-icon">∅</div>
+      <div class="empty-msg">Подписок пока нет</div>
+    </div>
+  </div>
+
+  <!-- ===== ОРГАНИЗАЦИИ ===== -->
+  <div x-show="tab === 'organizations'">
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Организации</h1>
+        <div class="meta">Юридические лица</div>
+      </div>
+      <button class="btn" @click="openOrgForm()" x-show="canEdit()">+ Добавить</button>
+    </div>
+    <div class="grid-2col" x-show="organizations.length">
+      <template x-for="o in organizations" :key="o.id">
+        <div class="sub-card" style="cursor:default">
+          <div class="sub-card-head">
+            <div class="list-row-main">
+              <div class="sub-card-name" x-text="o.name"></div>
+              <div class="sub-card-org" x-show="o.inn" x-text="'ИНН ' + o.inn"></div>
+            </div>
+            <div style="display:flex; gap:6px" x-show="canEdit()">
+              <button class="icon-btn" @click.stop="openOrgForm(o)">✎</button>
+              <button class="icon-btn danger" @click.stop="deleteItem('organizations', o.id)">×</button>
+            </div>
+          </div>
+          <div style="font-size:12px; color: var(--text-dim)" x-show="o.notes" x-text="o.notes"></div>
+        </div>
+      </template>
+    </div>
+    <div x-show="!organizations.length" class="empty">
+      <div class="empty-icon">∅</div>
+      <div class="empty-msg">Организаций нет</div>
+    </div>
+  </div>
+
+  <!-- ===== КОНТРАГЕНТЫ ===== -->
+  <div x-show="tab === 'contractors'">
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Контрагенты</h1>
+        <div class="meta">Поставщики услуг</div>
+      </div>
+      <button class="btn" @click="openContractorForm()" x-show="canEdit()">+ Добавить</button>
+    </div>
+    <div class="contractors-grid" x-show="contractors.length">
+      <template x-for="c in contractors" :key="c.id">
+        <div class="contractor-card">
+          <div class="logo lg" :class="{ 'has-logo': !!c.logo_url }">
+            <img x-show="c.logo_url" :src="c.logo_url" :alt="c.name" @error="$event.target.style.display='none'">
+            <span x-show="!c.logo_url" x-text="contractorInitials(c)"></span>
+          </div>
+          <div class="contractor-card-body">
+            <div class="sub-card-name" x-text="c.name"></div>
+            <div class="contractor-card-meta">
+              <span x-show="c.inn" x-text="'ИНН ' + c.inn"></span>
+              <a :href="c.website" target="_blank" x-show="c.website" x-text="c.website" class="mono" @click.stop></a>
+              <span x-show="c.contact_info" x-text="c.contact_info"></span>
+            </div>
+          </div>
+          <div class="contractor-card-actions" x-show="canEdit()">
+            <button class="icon-btn" @click.stop="openContractorForm(c)">✎</button>
+            <button class="icon-btn danger" @click.stop="deleteItem('contractors', c.id)">×</button>
+          </div>
+        </div>
+      </template>
+    </div>
+    <div x-show="!contractors.length" class="empty">
+      <div class="empty-icon">∅</div>
+      <div class="empty-msg">Контрагентов нет</div>
+    </div>
+  </div>
+
+  <!-- ===== СОТРУДНИКИ ===== -->
+  <div x-show="tab === 'employees'">
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Сотрудники</h1>
+        <div class="meta">Ответственные за подписки</div>
+      </div>
+      <button class="btn" @click="openEmployeeForm()" x-show="canEdit()">+ Добавить</button>
+    </div>
+    <div class="sub-grid" x-show="employees.length">
+      <template x-for="e in employees" :key="e.id">
+        <div class="sub-card" style="cursor:default">
+          <div class="sub-card-head">
+            <div class="list-row-main">
+              <div class="sub-card-name" x-text="e.full_name"></div>
+              <div class="sub-card-org" x-text="e.position || '—'"></div>
+            </div>
+            <div style="display:flex; gap:6px" x-show="canEdit()">
+              <button class="icon-btn" @click.stop="openEmployeeForm(e)">✎</button>
+              <button class="icon-btn danger" @click.stop="deleteItem('employees', e.id)">×</button>
+            </div>
+          </div>
+          <div style="margin-top:8px; font-size: 12px; color: var(--text-dim); font-family: var(--mono)">
+            <div x-show="e.email" x-text="e.email"></div>
+            <div x-show="e.phone" x-text="e.phone"></div>
+          </div>
+        </div>
+      </template>
+    </div>
+    <div x-show="!employees.length" class="empty">
+      <div class="empty-icon">∅</div>
+      <div class="empty-msg">Сотрудников нет</div>
+    </div>
+  </div>
+
+  <!-- ===== КАТЕГОРИИ + СПОСОБЫ ОПЛАТЫ ===== -->
+  <div x-show="tab === 'categories'">
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Справочники</h1>
+        <div class="meta">Категории и способы оплаты</div>
+      </div>
+    </div>
+    <div class="form-grid cols-2">
+      <div class="card">
+        <div class="card-title">
+          <h3>Категории</h3>
+          <button class="btn btn-sm" @click="openCategoryForm()" x-show="canEdit()">+</button>
+        </div>
+        <div class="list">
+          <template x-for="c in categories" :key="c.id">
+            <div class="list-row" style="cursor:default">
+              <div class="list-row-main" style="display:flex; align-items:center; gap:10px">
+                <span class="dict-icon">
+                  <img x-show="isIconUrl(c.icon)" :src="c.icon" :alt="c.name">
+                  <span x-show="!isIconUrl(c.icon)" x-text="c.icon || '📁'"></span>
+                </span>
+                <span x-text="c.name"></span>
+              </div>
+              <div style="display:flex; gap:6px" x-show="canEdit()">
+                <button class="icon-btn" @click="openCategoryForm(c)">✎</button>
+                <button class="icon-btn danger" @click="deleteItem('categories', c.id)">×</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">
+          <h3>Способы оплаты</h3>
+          <button class="btn btn-sm" @click="openPaymentMethodForm()" x-show="canEdit()">+</button>
+        </div>
+        <div class="list">
+          <template x-for="p in paymentMethods" :key="p.id">
+            <div class="list-row" style="cursor:default">
+              <div class="list-row-main" style="display:flex; align-items:center; gap:10px">
+                <span class="dict-icon">
+                  <img x-show="isIconUrl(p.icon)" :src="p.icon" :alt="p.name">
+                  <span x-show="!isIconUrl(p.icon)" x-text="p.icon || '💳'"></span>
+                </span>
+                <div style="min-width:0">
+                  <div class="list-row-name" x-text="p.name"></div>
+                  <div class="list-row-meta" x-show="p.details" x-text="p.details"></div>
+                </div>
+              </div>
+              <div style="display:flex; gap:6px" x-show="canEdit()">
+                <button class="icon-btn" @click="openPaymentMethodForm(p)">✎</button>
+                <button class="icon-btn danger" @click="deleteItem('payment-methods', p.id)">×</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===== ПОЛЬЗОВАТЕЛИ ===== -->
+  <div x-show="tab === 'users'">
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Пользователи</h1>
+        <div class="meta">Управление доступом</div>
+      </div>
+      <button class="btn" @click="openUserForm()">+ Новый</button>
+    </div>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Логин</th>
+          <th>ФИО</th>
+          <th>Роль</th>
+          <th>Статус</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="u in users" :key="u.id">
+          <tr>
+            <td class="mono" x-text="u.username"></td>
+            <td x-text="u.full_name || '—'"></td>
+            <td><span class="badge" :class="u.role === 'admin' ? 'active' : ''" x-text="roleLabel(u.role)"></span></td>
+            <td x-text="u.is_active ? 'Активен' : 'Отключён'"></td>
+            <td style="text-align:right">
+              <button class="icon-btn" @click="openUserForm(u)">✎</button>
+              <button class="icon-btn danger" @click="deleteItem('users', u.id)">×</button>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ===== WEBHOOKS ===== -->
+  <div x-show="tab === 'webhooks'">
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Уведомления</h1>
+        <div class="meta">Каналы доставки: webhook, email, telegram, bitrix24</div>
+      </div>
+      <button class="btn" @click="openWebhookForm()">+ Новый канал</button>
+    </div>
+    <div style="margin-bottom:14px">
+      <button class="btn btn-ghost btn-sm" @click="loadNotifLogs(); notifLogsOpen = true">📜 Журнал доставки</button>
+    </div>
+    <template x-for="w in webhooks" :key="w.id">
+      <div class="webhook-card">
+        <div class="webhook-card-head">
+          <div style="min-width:0; flex:1; display:flex; gap:12px; align-items:center">
+            <img :src="channelKindIcon(w.kind)" :alt="w.kind" style="width:40px; height:40px; border-radius:8px; flex-shrink:0">
+            <div style="min-width:0; flex:1">
+              <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom: 4px">
+                <div class="webhook-name" x-text="w.name"></div>
+                <span class="badge" x-text="channelKindLabel(w.kind)"></span>
+                <span class="badge" :class="w.enabled ? 'active' : 'inactive'" x-text="w.enabled ? 'Активен' : 'Выключен'"></span>
+              </div>
+              <div class="webhook-url" x-text="channelSubtitle(w)"></div>
+            </div>
+          </div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" @click="testWebhook(w.id)">Тест</button>
+            <button class="btn btn-ghost btn-sm" @click="sendUpcoming(w.id)">Отправить ближайшие</button>
+            <button class="icon-btn" @click="openWebhookForm(w)">✎</button>
+            <button class="icon-btn danger" @click="deleteItem('webhooks', w.id)">×</button>
+          </div>
+        </div>
+      </div>
+    </template>
+    <div x-show="!webhooks.length" class="empty">
+      <div class="empty-icon">∅</div>
+      <div class="empty-msg">Каналов уведомлений пока нет</div>
+    </div>
+
+    <!-- Журнал доставки -->
+    <div x-show="notifLogsOpen"
+         @mousedown.self="backdropDown = true"
+         @mouseup.self="if (backdropDown) notifLogsOpen = false; backdropDown = false"
+         class="modal-backdrop">
+      <div class="modal-box" style="max-width:760px">
+        <div class="modal-head">
+          <h3>📜 Журнал доставки уведомлений</h3>
+          <button class="modal-close" @click="notifLogsOpen = false">×</button>
+        </div>
+        <div class="modal-body">
+          <div x-show="!notifLogs.length" class="empty"><div class="empty-msg">Журнал пуст</div></div>
+          <div x-show="notifLogs.length" class="list">
+            <template x-for="log in notifLogs" :key="log.id">
+              <div class="list-row" style="cursor:default">
+                <div class="list-row-main" style="min-width:0">
+                  <div style="display:flex; align-items:center; gap:8px">
+                    <span :class="log.success ? 'badge active' : 'badge inactive'" x-text="log.success ? '✓ доставлено' : '✗ ошибка'"></span>
+                    <span class="list-row-name" x-text="log.subscription_name"></span>
+                  </div>
+                  <div class="list-row-meta" x-text="log.message"></div>
+                </div>
+                <div class="list-row-right">
+                  <div class="list-row-sub" x-text="formatLogTime(log.created_at)"></div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== СИСТЕМА ===== -->
+  <div x-show="tab === 'system'">
+    <div class="page-header">
+      <div class="page-header-left">
+        <h1>Система</h1>
+        <div class="meta">Обновление приложения</div>
+      </div>
+      <div class="page-header-right" x-show="appVersion" style="display:flex; align-items:center; gap:10px">
+        <span class="version-badge" x-text="appVersion"></span>
+        <button class="btn btn-ghost btn-sm" @click="checkUpdate()" :disabled="updateChecking">
+          <span x-show="!updateChecking">Проверить обновления</span>
+          <span x-show="updateChecking">Проверяю…</span>
+        </button>
+      </div>
+    </div>
+
+    <div x-show="updateInfo" class="update-notice" :class="{ available: updateInfo?.available }">
+      <template x-if="updateInfo?.available">
+        <div>
+          <strong>Доступна новая версия: <span x-text="updateInfo.latest"></span></strong>
+          (у вас <span x-text="updateInfo.current"></span>).
+          <a :href="updateInfo.url" target="_blank" rel="noopener">Открыть на GitHub →</a>
+          <div class="form-hint" style="margin-top:6px">Скачайте архив и загрузите его ниже в блоке обновления.</div>
+        </div>
+      </template>
+      <template x-if="updateInfo && !updateInfo.available && !updateInfo.error">
+        <div>У вас актуальная версия (<span x-text="updateInfo.current"></span>).</div>
+      </template>
+      <template x-if="updateInfo?.error">
+        <div class="update-err" x-text="updateInfo.error"></div>
+      </template>
+    </div>
+
+    <div class="warning-banner">
+      Загрузка нового архива заменит файлы приложения и перезапустит контейнер.
+      Данные (база, документы) сохраняются. После обновления нажмите Ctrl+F5.
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <h3>Импорт и экспорт данных</h3>
+        <span class="count">ZIP</span>
+      </div>
+      <div class="data-actions">
+        <button class="btn" @click="exportData()">Экспортировать</button>
+        <label class="btn btn-ghost">
+          Импортировать
+          <input type="file" accept="application/zip,.zip,application/json,.json" @change="importData($event.target.files[0]); $event.target.value = ''">
+        </label>
+      </div>
+      <div class="update-log" x-show="importLog" x-text="importLog"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <h3>Резервные копии базы</h3>
+        <button class="btn btn-ghost btn-sm" @click="loadBackups()">Обновить</button>
+      </div>
+      <div class="form-hint" style="margin-bottom:10px">
+        Снапшоты базы данных: автоматические (раз в неделю) и перед каждым обновлением приложения.
+        При восстановлении текущая база сначала сохраняется в отдельную копию.
+      </div>
+      <div x-show="!backups.length" class="form-hint" style="text-align:center; padding:16px">
+        Пока нет резервных копий.
+      </div>
+      <div class="backups-list" x-show="backups.length">
+        <template x-for="b in backups" :key="b.name">
+          <div class="backup-row">
+            <div class="backup-info">
+              <span class="backup-badge" :class="b.kind" x-text="b.kind === 'pre-update' ? 'перед обновл.' : (b.kind === 'auto' ? 'авто' : b.kind)"></span>
+              <span class="backup-name" x-text="b.name"></span>
+              <span class="backup-meta" x-text="b.created.replace('T',' ') + ' · ' + fmtBytes(b.size)"></span>
+            </div>
+            <button class="btn btn-ghost btn-sm" @click="restoreBackup(b.name)" x-show="currentUser?.role === 'admin'">Восстановить</button>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <div class="update-zone"
+         :class="{ dragging: updateDragging }"
+         @dragover.prevent="updateDragging = true"
+         @dragleave.prevent="updateDragging = false"
+         @drop.prevent="updateDragging = false; handleUploadFile($event.dataTransfer.files[0])">
+      <div class="update-zone-icon">↑</div>
+      <div class="update-zone-text">Перетащите .tar.gz архив сюда или</div>
+      <label class="update-zone-btn">
+        Выбрать файл
+        <input type="file" @change="handleUploadFile($event.target.files[0])">
+      </label>
+    </div>
+
+    <div class="update-log" x-show="updateLog" x-text="updateLog"></div>
+  </div>
+
+</main>
+
+<!-- ===== Детали подписки ===== -->
+<div x-show="subDetails"
+     @mousedown.self="backdropDown = true"
+     @mouseup.self="if (backdropDown) subDetails = null; backdropDown = false"
+     class="modal-backdrop">
+  <div class="modal" x-show="subDetails">
+    <div class="modal-head">
+      <div style="display:flex; align-items:center; gap:14px; min-width:0; flex:1">
+        <div class="logo lg" x-show="subDetails?.contractor || subDetails?.logo" :class="{ 'has-logo': !!(subDetails?.contractor?.logo_url || subDetails?.logo) }">
+          <img x-show="subDetails?.contractor?.logo_url || subDetails?.logo" :src="subDetails?.contractor?.logo_url || subDetails?.logo || ''" :alt="subDetails?.contractor?.name || subDetails?.name || ''" @error="$event.target.style.display='none'">
+          <span x-show="!(subDetails?.contractor?.logo_url || subDetails?.logo)" x-text="contractorInitials(subDetails?.contractor)"></span>
+        </div>
+        <div style="min-width:0">
+          <div class="meta" x-text="typeLabel(subDetails?.sub_type)"></div>
+          <h3 x-text="subDetails?.name"></h3>
+        </div>
+      </div>
+      <button class="modal-close" @click="subDetails = null">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="detail-rows">
+        <template x-for="row in detailRows" :key="row.key">
+          <div class="detail-row" x-show="row.value">
+            <div class="key" x-text="row.key"></div>
+            <div class="val" :class="{featured: row.featured}" x-html="row.html || row.value"></div>
+          </div>
+        </template>
+      </div>
+    </div>
+    <div class="modal-foot" x-show="canEdit()">
+      <button class="btn btn-ghost" @click="subDetails = null">Закрыть</button>
+      <button class="btn btn-danger" @click="deleteItem('subscriptions', subDetails.id); subDetails = null">Удалить</button>
+      <button class="btn btn-ghost" @click="openSubForm(subDetails); subDetails = null">Редактировать</button>
+      <button class="btn btn-paid" @click="markPaid(subDetails); subDetails = null"
+              x-show="!subDetails?.auto_renew && (subDetails?.sub_type === 'recurring' || subDetails?.sub_type === 'onetime')">✓ Отметить оплату</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Форма подписки ===== -->
+<template x-if="subForm">
+<div x-show="subForm"
+     @mousedown.self="backdropDown = true"
+     @mouseup.self="if (backdropDown) subForm = null; backdropDown = false"
+     class="modal-backdrop">
+  <div class="modal wide" x-show="subForm">
+    <div class="modal-head">
+      <div>
+        <div class="meta" x-text="subForm?.id ? 'Редактирование' : 'Создание'"></div>
+        <h3 x-text="subForm?.id ? 'Изменить подписку' : 'Новая подписка'"></h3>
+      </div>
+      <button class="modal-close" @click="subForm = null">×</button>
+    </div>
+    <div class="modal-body" x-show="subForm">
+      <div class="form-grid">
+        <div>
+          <label class="form-label">Тип</label>
+          <select x-model="subForm.sub_type">
+            <option value="recurring">Подписка — регулярная оплата</option>
+            <option value="balance">Счёт/Баланс — пополняемый счёт</option>
+            <option value="onetime">Разовый платёж</option>
+          </select>
+          <div class="form-hint">
+            <span x-show="subForm.sub_type === 'recurring'">Регулярные платежи в указанный день месяца (SaaS, хостинг, домен).</span>
+            <span x-show="subForm.sub_type === 'balance'">Счёт с балансом. День списания — опционально (есть автосписание / нет). API получения баланса — опционально.</span>
+            <span x-show="subForm.sub_type === 'onetime'">Одноразовая оплата (лицензия, разовая услуга).</span>
+          </div>
+        </div>
+        <div>
+          <label class="form-label">Название *</label>
+          <input x-model="subForm.name" required placeholder="Например: Хостинг сайта">
+        </div>
+
+        <div class="form-grid cols-2">
+          <div>
+            <label class="form-label">Стоимость</label>
+            <input type="number" step="0.01" x-model.number="subForm.price">
+          </div>
+          <div>
+            <label class="form-label">Валюта</label>
+            <select x-model="subForm.currency">
+              <option value="RUB">RUB</option>
+              <option value="USD">USD</option>
+              <option value="EUR">EUR</option>
+            </select>
+          </div>
+        </div>
+
+        <div x-show="subForm.sub_type === 'balance'" class="form-balance-block">
+          <div class="form-section-title">Контроль баланса</div>
+          <div class="form-grid cols-2">
+            <div>
+              <label class="form-label">Текущий баланс</label>
+              <input type="number" step="0.01" x-model.number="subForm.balance" :disabled="subForm.balance_api_enabled">
+              <div class="form-hint" x-show="subForm.balance_api_enabled">Обновляется автоматически из API каждые 30 минут.</div>
+            </div>
+            <div x-show="!subForm.balance_api_enabled">
+              <label class="form-label">День списания (опционально)</label>
+              <input type="number" min="1" max="28" x-model.number="subForm.billing_day" placeholder="не задан">
+              <div class="form-hint">Если пусто — автосписания нет, баланс ведётся вручную. В день списания система вычтет стоимость из баланса.</div>
+            </div>
+            <div>
+              <label class="form-label">Минимум для уведомления</label>
+              <input type="number" step="0.01" x-model.number="subForm.min_balance">
+              <div class="form-hint">Уведомление придёт если баланс ≤ этого минимума, либо если баланса не хватает на следующее списание (по стоимости). Можно оставить 0 — тогда тревога только по стоимости.</div>
+            </div>
+          </div>
+
+          <label class="toggle-row" style="margin-top:14px">
+            <span class="toggle-switch" :class="{on: subForm.balance_api_enabled}" @click="subForm.balance_api_enabled = !subForm.balance_api_enabled">
+              <span class="toggle-knob"></span>
+            </span>
+            <span class="toggle-label">Получать баланс из внешнего API</span>
+          </label>
+          <div class="form-hint" x-show="subForm.balance_api_enabled" style="margin-top:6px">
+            С API реальный баланс приходит из сервиса каждые 30 минут — ручное списание по дню отключено (баланс ведёт сам сервис).
+          </div>
+
+          <div x-show="subForm.balance_api_enabled" style="margin-top:12px">
+            <label class="form-label">URL API</label>
+            <input x-model="subForm.balance_api_url" placeholder="https://api.example.com/balance?token=...">
+            <div class="form-grid cols-2" style="margin-top:10px">
+              <div>
+                <label class="form-label">Путь к балансу в JSON</label>
+                <input x-model="subForm.balance_api_path" placeholder="balance или data.balance">
+              </div>
+              <div style="display:flex; align-items:flex-end">
+                <button type="button" class="btn btn-ghost" @click="fetchBalance()" x-show="subForm.id" style="width:100%">Получить сейчас</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div x-show="subForm.sub_type !== 'onetime'">
+          <label class="form-label">Период</label>
+          <select x-model="subForm.cycle">
+            <option value="daily">Дневной</option>
+            <option value="weekly">Недельный</option>
+            <option value="monthly">Месячный</option>
+            <option value="yearly">Годовой</option>
+          </select>
+          <div style="margin-top:8px">
+            <a @click="showAdvanced = !showAdvanced" style="font-size:12px; cursor:pointer; color: var(--accent)">
+              <span x-text="showAdvanced ? '▾ Скрыть' : '▸ Показать'"></span> расширенные настройки
+            </a>
+          </div>
+          <div x-show="showAdvanced" style="margin-top:8px">
+            <label class="form-label">Каждые N периодов</label>
+            <input type="number" min="1" x-model.number="subForm.frequency">
+            <div class="form-hint">Например, 3 + «Месячный» = раз в квартал. По умолчанию 1.</div>
+          </div>
+        </div>
+
+        <div x-show="subForm.sub_type === 'recurring'">
+          <label class="form-label">День списания (1-28) *</label>
+          <input type="number" min="1" max="28" x-model.number="subForm.billing_day">
+        </div>
+        <div x-show="subForm.sub_type === 'onetime'">
+          <label class="form-label">Дата оплаты</label>
+          <input type="date" x-model="subForm.next_payment">
+        </div>
+
+        <div class="form-section">
+          <div class="form-section-title">🔔 Уведомления</div>
+
+          <label class="toggle-row">
+            <span class="toggle-switch" :class="{on: subForm.auto_renew}" @click="subForm.auto_renew = !subForm.auto_renew">
+              <span class="toggle-knob"></span>
+            </span>
+            <span class="toggle-label">Продлевается автоматически</span>
+          </label>
+          <div class="form-hint" style="margin-bottom:12px">
+            Если включено — платёж списывается автоматически, отмечать оплату вручную не нужно.
+          </div>
+
+          <label class="toggle-row">
+            <span class="toggle-switch" :class="{on: subForm.notify_enabled}" @click="subForm.notify_enabled = !subForm.notify_enabled">
+              <span class="toggle-knob"></span>
+            </span>
+            <span class="toggle-label">Включить уведомления для этой подписки</span>
+          </label>
+
+          <div x-show="subForm.notify_enabled" style="margin-top:14px">
+            <div class="form-grid cols-2">
+              <div>
+                <label class="form-label">Начать напоминать за</label>
+                <select id="sel-notify-days" x-model="subForm.notify_days_before"
+                        @change="subForm.notify_days_before = $event.target.value">
+                  <template x-for="d in notifyDayOptions" :key="d">
+                    <option :value="String(d)" x-text="d === 0 ? 'в день платежа' : (d + ' ' + dayWord(d) + ' до платежа')"></option>
+                  </template>
+                </select>
+                <div class="form-hint">Дальше напоминает каждый день, пока не отметите оплату.</div>
+              </div>
+              <div>
+                <label class="form-label">Дата отмены подписки (опционально)</label>
+                <input type="date" x-model="subForm.cancellation_date">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="form-section-title">Привязка</div>
+          <div class="form-grid cols-2">
+            <div>
+              <label class="form-label">Организация</label>
+              <select id="sel-organization" x-model="subForm.organization_id">
+                <option value="">— не выбрана —</option>
+                <template x-for="o in organizations" :key="o.id"><option :value="String(o.id)" x-text="o.name"></option></template>
+              </select>
+            </div>
+            <div>
+              <label class="form-label">Контрагент</label>
+              <div class="search-dropdown" @click.outside="contractorSearchOpen = false; contractorSearch = ''">
+                <div class="search-dropdown-field" :class="{ open: contractorSearchOpen }">
+                  <img x-show="!contractorSearchOpen && selectedContractor()?.logo_url"
+                       :src="selectedContractor()?.logo_url || ''" alt=""
+                       class="search-dropdown-field-logo">
+                  <input type="text"
+                         x-ref="contractorSearchInput"
+                         :value="contractorSearchOpen ? contractorSearch : (selectedContractor() ? selectedContractor().name : '')"
+                         @input="contractorSearch = $event.target.value"
+                         @focus="contractorSearchOpen = true; contractorSearch = ''"
+                         @keydown.enter.prevent="if (canCreateContractor()) createContractorInline()"
+                         :placeholder="selectedContractor() ? selectedContractor().name : '— не выбран —'">
+                  <button type="button" class="search-dropdown-arrow-btn"
+                          @click="contractorSearchOpen = !contractorSearchOpen; if (contractorSearchOpen) { contractorSearch=''; $nextTick(() => $refs.contractorSearchInput?.focus()); }">▾</button>
+                </div>
+                <div class="icon-dropdown-menu" x-show="contractorSearchOpen" x-transition.opacity x-cloak>
+                  <div class="search-dropdown-list">
+                    <div class="icon-dropdown-item" :class="{ active: !subForm.contractor_id }" @click="pickContractor('')">— не выбран —</div>
+                    <template x-for="c in filteredContractors()" :key="c.id">
+                      <div class="icon-dropdown-item" :class="{ active: String(subForm.contractor_id) === String(c.id) }" @click="pickContractor(c.id)">
+                        <img x-show="c.logo_url" :src="c.logo_url" alt="" style="width:20px;height:20px;object-fit:contain">
+                        <span x-text="c.name"></span>
+                      </div>
+                    </template>
+                    <div x-show="filteredContractors().length === 0 && !canCreateContractor()" class="search-dropdown-empty">
+                      Ничего не найдено
+                    </div>
+                  </div>
+                  <div x-show="canCreateContractor()" class="search-dropdown-create" @click="createContractorInline()">
+                    + Добавить контрагента «<span x-text="contractorSearch.trim()"></span>»
+                  </div>
+                </div>
+                <input type="hidden" id="sel-contractor" :value="subForm.contractor_id">
+              </div>
+            </div>
+            <div>
+              <label class="form-label">Ответственный</label>
+              <select id="sel-employee" x-model="subForm.employee_id">
+                <option value="">— не выбран —</option>
+                <template x-for="e in employees" :key="e.id"><option :value="String(e.id)" x-text="e.full_name"></option></template>
+              </select>
+            </div>
+            <div>
+              <label class="form-label">Категория</label>
+              <div class="icon-dropdown" @click.outside="if (iconDropdown === 'category') iconDropdown = ''">
+                <button type="button" class="icon-dropdown-trigger" @click="iconDropdown = iconDropdown === 'category' ? '' : 'category'">
+                  <template x-if="selectedCategory()">
+                    <span class="icon-dropdown-current">
+                      <img x-show="isIconUrl(selectedCategory().icon)" :src="selectedCategory().icon" alt="">
+                      <span x-show="!isIconUrl(selectedCategory().icon)" x-text="selectedCategory().icon || '📁'" style="font-size:18px"></span>
+                      <span x-text="selectedCategory().name"></span>
+                    </span>
+                  </template>
+                  <template x-if="!selectedCategory()">
+                    <span class="icon-dropdown-current placeholder">— без категории —</span>
+                  </template>
+                  <span class="icon-dropdown-arrow">▾</span>
+                </button>
+                <div class="icon-dropdown-menu" x-show="iconDropdown === 'category'" x-transition.opacity x-cloak>
+                  <div class="icon-dropdown-item" :class="{ active: !subForm.category_id }" @click="pickCategory('')">— без категории —</div>
+                  <template x-for="c in categories" :key="c.id">
+                    <div class="icon-dropdown-item" :class="{ active: String(subForm.category_id) === String(c.id) }" @click="pickCategory(c.id)">
+                      <img x-show="isIconUrl(c.icon)" :src="c.icon" alt="">
+                      <span x-show="!isIconUrl(c.icon)" x-text="c.icon || '📁'" style="font-size:18px"></span>
+                      <span x-text="c.name"></span>
+                    </div>
+                  </template>
+                </div>
+                <!-- Скрытый input для совместимости (saveSub читает из subForm.category_id) -->
+                <input type="hidden" id="sel-category" :value="subForm.category_id">
+              </div>
+            </div>
+            <div style="grid-column: 1/-1">
+              <label class="form-label">Способ оплаты</label>
+              <div class="icon-dropdown" @click.outside="if (iconDropdown === 'payment') iconDropdown = ''">
+                <button type="button" class="icon-dropdown-trigger" @click="iconDropdown = iconDropdown === 'payment' ? '' : 'payment'">
+                  <template x-if="selectedPayment()">
+                    <span class="icon-dropdown-current">
+                      <img x-show="isIconUrl(selectedPayment().icon)" :src="selectedPayment().icon" alt="">
+                      <span x-show="!isIconUrl(selectedPayment().icon)" x-text="selectedPayment().icon || '💳'" style="font-size:18px"></span>
+                      <span x-text="selectedPayment().name"></span>
+                    </span>
+                  </template>
+                  <template x-if="!selectedPayment()">
+                    <span class="icon-dropdown-current placeholder">— не указан —</span>
+                  </template>
+                  <span class="icon-dropdown-arrow">▾</span>
+                </button>
+                <div class="icon-dropdown-menu" x-show="iconDropdown === 'payment'" x-transition.opacity x-cloak>
+                  <div class="icon-dropdown-item" :class="{ active: !subForm.payment_method_id }" @click="pickPayment('')">— не указан —</div>
+                  <template x-for="p in paymentMethods" :key="p.id">
+                    <div class="icon-dropdown-item" :class="{ active: String(subForm.payment_method_id) === String(p.id) }" @click="pickPayment(p.id)">
+                      <img x-show="isIconUrl(p.icon)" :src="p.icon" alt="">
+                      <span x-show="!isIconUrl(p.icon)" x-text="p.icon || '💳'" style="font-size:18px"></span>
+                      <span x-text="p.name"></span>
+                    </div>
+                  </template>
+                </div>
+                <input type="hidden" id="sel-payment" :value="subForm.payment_method_id">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="form-section-title">Дополнительно</div>
+          <label class="form-label">URL сервиса</label>
+          <input x-model="subForm.url" placeholder="https://...">
+          <div style="margin-top:12px">
+            <label class="form-label">Примечания</label>
+            <textarea x-model="subForm.notes" rows="2"></textarea>
+          </div>
+          <label style="display:flex; align-items:center; gap:8px; margin-top:12px; font-size:13px; cursor:pointer">
+            <input type="checkbox" x-model="subForm.is_active">
+            Активная подписка
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-danger" @click="deleteSub()" x-show="subForm?.id && canEdit()" style="margin-right:auto">Удалить</button>
+      <button class="btn btn-ghost" @click="subForm = null">Отмена</button>
+      <button class="btn" @click="saveSub()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Универсальная форма ===== -->
+</template>
+<template x-if="simpleForm">
+<div x-show="simpleForm"
+     @mousedown.self="backdropDown = true"
+     @mouseup.self="if (backdropDown) simpleForm = null; backdropDown = false"
+     class="modal-backdrop">
+  <div class="modal" x-show="simpleForm">
+    <div class="modal-head">
+      <div>
+        <div class="meta" x-text="simpleForm?.data?.id ? 'Редактирование' : 'Создание'"></div>
+        <h3 x-text="simpleForm?.title"></h3>
+      </div>
+      <button class="modal-close" @click="simpleForm = null">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <template x-for="f in simpleForm?.fields || []" :key="f.key">
+          <div>
+            <label class="form-label" x-text="f.label"></label>
+            <textarea x-show="f.type === 'textarea'" x-model="simpleForm.data[f.key]" rows="3"></textarea>
+            <select x-show="f.type === 'select'"
+                    x-model="simpleForm.data[f.key]"
+                    @change="simpleForm.data[f.key] = $event.target.value">
+              <template x-for="opt in f.options || []" :key="opt.value"><option :value="opt.value" x-text="opt.label"></option></template>
+            </select>
+            <label x-show="f.type === 'checkbox'" style="display:flex; align-items:center; gap:8px; cursor:pointer">
+              <input type="checkbox" x-model="simpleForm.data[f.key]">
+              <span x-text="f.label"></span>
+            </label>
+            <div x-show="f.type === 'iconpicker'">
+              <!-- Текущая выбранная (превью) -->
+              <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px">
+                <div class="icon-preview">
+                  <img x-show="isIconUrl(simpleForm.data[f.key])" :src="simpleForm.data[f.key]" alt="icon">
+                  <span x-show="!isIconUrl(simpleForm.data[f.key])" x-text="simpleForm.data[f.key] || '?'"></span>
+                </div>
+              </div>
+
+              <!-- Встроенные SVG-иконки -->
+              <div x-show="(f.builtinIcons || []).length">
+                <div class="icon-picker">
+                  <template x-for="bi in f.builtinIcons || []" :key="bi">
+                    <button type="button" class="icon-option icon-option-img"
+                            :class="{ selected: simpleForm.data[f.key] === bi }"
+                            @click="simpleForm.data[f.key] = bi">
+                      <img :src="bi" :alt="bi">
+                    </button>
+                  </template>
+                </div>
+              </div>
+            </div>
+            <input x-show="!['textarea','select','checkbox','iconpicker'].includes(f.type)"
+                   :type="f.type || 'text'"
+                   x-model="simpleForm.data[f.key]"
+                   :disabled="f.disabled === true">
+          </div>
+        </template>
+
+        <!-- Канал уведомлений (kind = notification_channel) -->
+        <div x-show="simpleForm?.kind === 'notification_channel'" style="display:contents">
+          <div>
+            <label class="form-label">Название</label>
+            <input x-model="simpleForm.data.name" placeholder="Например, Telegram CEO">
+          </div>
+          <div>
+            <label class="form-label">Тип канала</label>
+            <div class="kind-picker">
+              <template x-for="kind in channelKinds" :key="kind.id">
+                <button type="button" class="kind-tile" :class="{ active: simpleForm.data.kind === kind.id }"
+                        @click="simpleForm.data.kind = kind.id">
+                  <img :src="kind.icon" :alt="kind.label">
+                  <span x-text="kind.label"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+
+          <!-- Webhook -->
+          <template x-if="simpleForm.data.kind === 'webhook'">
+            <div style="display:contents">
+              <div>
+                <label class="form-label">URL *</label>
+                <input x-model="simpleForm.data.url" placeholder="https://example.com/hook">
+              </div>
+              <div>
+                <label class="form-label">HTTP метод</label>
+                <select x-model="simpleForm.data.method">
+                  <option>POST</option><option>PUT</option><option>GET</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label">Headers (JSON)</label>
+                <textarea x-model="simpleForm.data.headers" rows="2"></textarea>
+              </div>
+              <div>
+                <label class="form-label">Payload шаблон (JSON)</label>
+                <textarea x-model="simpleForm.data.payload_template" rows="5"></textarea>
+                <div class="form-hint">Доступны: {{subscription_name}}, {{subscription_price}}, {{subscription_currency}}, {{subscription_date}}, {{subscription_organization}}, {{message}}, {{event_type}}</div>
+              </div>
+            </div>
+          </template>
+
+          <!-- Email -->
+          <template x-if="simpleForm.data.kind === 'email'">
+            <div style="display:contents">
+              <div class="form-grid cols-2">
+                <div>
+                  <label class="form-label">SMTP сервер *</label>
+                  <input x-model="simpleForm.data.cfg_smtp_host" placeholder="smtp.gmail.com">
+                </div>
+                <div>
+                  <label class="form-label">Порт</label>
+                  <input type="number" x-model.number="simpleForm.data.cfg_smtp_port">
+                </div>
+                <div>
+                  <label class="form-label">Логин</label>
+                  <input x-model="simpleForm.data.cfg_smtp_user" placeholder="user@example.com">
+                </div>
+                <div>
+                  <label class="form-label">Пароль</label>
+                  <input type="password" x-model="simpleForm.data.cfg_smtp_password">
+                </div>
+                <div>
+                  <label class="form-label">От кого</label>
+                  <input x-model="simpleForm.data.cfg_from_addr" placeholder="oops@example.com">
+                </div>
+                <div>
+                  <label class="form-label">Кому отправлять *</label>
+                  <input x-model="simpleForm.data.cfg_to_addr" placeholder="admin@example.com">
+                </div>
+              </div>
+              <label style="display:flex; gap:8px; align-items:center; cursor:pointer">
+                <input type="checkbox" x-model="simpleForm.data.cfg_use_tls">
+                <span>Использовать STARTTLS (рекомендуется для порта 587)</span>
+              </label>
+            </div>
+          </template>
+
+          <!-- Telegram -->
+          <template x-if="simpleForm.data.kind === 'telegram'">
+            <div style="display:contents">
+              <div>
+                <label class="form-label">Bot Token *</label>
+                <input x-model="simpleForm.data.cfg_bot_token" placeholder="123456:ABC-DEF...">
+                <div class="form-hint">Получи у @BotFather в Telegram</div>
+              </div>
+              <div>
+                <label class="form-label">Chat ID *</label>
+                <input x-model="simpleForm.data.cfg_chat_id" placeholder="-100123456789 или 123456789">
+                <div class="form-hint">Узнать через @userinfobot (для личных) или из URL чата</div>
+              </div>
+            </div>
+          </template>
+
+          <!-- Bitrix24 -->
+          <template x-if="simpleForm.data.kind === 'bitrix24'">
+            <div style="display:contents">
+              <div>
+                <label class="form-label">URL входящего вебхука *</label>
+                <input x-model="simpleForm.data.url" placeholder="https://your.bitrix24.ru/rest/1/TOKEN/">
+                <div class="form-hint">
+                  В Bitrix24: <b>Разработчикам → Другое → Входящий вебхук</b>.<br>
+                  Дайте права <code>im</code> (мессенджер). Скопируйте URL целиком до последнего <code>/</code> — метод <code>im.notify</code> добавится автоматически.
+                </div>
+              </div>
+              <div>
+                <label class="form-label">USER_ID получателя (опционально)</label>
+                <input x-model="simpleForm.data.cfg_user_id" placeholder="1">
+                <div class="form-hint">Для <code>im.notify</code> поле можно оставить пустым — Bitrix24 отправит уведомление владельцу вебхука.<br>Узнать ID: в Битриксе профиль пользователя → URL содержит <code>/user/123/</code>.</div>
+              </div>
+              <div>
+                <label class="form-label">CHAT_ID / DIALOG_ID (опционально)</label>
+                <input x-model="simpleForm.data.cfg_chat_id" placeholder="chat123 или sg123">
+                <div class="form-hint">Если заполнено — сообщение пойдёт в чат через <code>im.message.add</code>. Форматы: <code>chat123</code> (групповой чат), <code>sg123</code> (соц. группа), просто число (личка пользователю).</div>
+              </div>
+              <div x-show="simpleForm.data.cfg_chat_id">
+                <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer">
+                  <input type="checkbox" x-model="simpleForm.data.cfg_system_message" style="margin-top:2px">
+                  <span>
+                    <b>Отправлять как системное сообщение</b>
+                    <div class="form-hint" style="margin-top:2px">
+                      В чате сообщение будет показано серым курсивом по центру (без аватарки и автора) — как «Иван добавил Петю в чат». Это работает только для чатов. Параметр <code>SYSTEM: Y</code> метода <code>im.message.add</code>.
+                    </div>
+                  </span>
+                </label>
+              </div>
+            </div>
+          </template>
+
+          <label style="display:flex; gap:8px; align-items:center; cursor:pointer; margin-top:8px">
+            <input type="checkbox" x-model="simpleForm.data.enabled">
+            <span>Канал активен</span>
+          </label>
+          <label style="display:flex; gap:8px; align-items:center; cursor:pointer" x-show="['webhook','bitrix24'].includes(simpleForm.data.kind)">
+            <input type="checkbox" x-model="simpleForm.data.ignore_ssl">
+            <span>Игнорировать SSL-ошибки</span>
+          </label>
+          <button type="button" class="btn btn-ghost btn-sm" style="margin-top:10px; align-self:flex-start" @click="testChannelConfig()">🧪 Проверить настройки (без сохранения)</button>
+        </div>
+
+        <!-- Логотип контрагента -->
+        <div x-show="simpleForm?.showLogoControls">
+          <label class="form-label">Логотип</label>
+          <div class="logo-picker">
+            <div class="logo xl" :title="simpleForm?.data?.name" :class="{ 'has-logo': !!simpleForm?.data?.logo_url }">
+              <img x-show="simpleForm?.data?.logo_url"
+                   :src="simpleForm?.data?.logo_url || ''"
+                   :alt="simpleForm?.data?.name || ''"
+                   @error="if (simpleForm?.data) simpleForm.data.logo_url = ''">
+              <span x-show="!simpleForm?.data?.logo_url" x-text="contractorInitials(simpleForm?.data)"></span>
+            </div>
+            <div class="logo-picker-actions">
+              <div class="logo-picker-buttons">
+                <label class="btn btn-ghost btn-sm">
+                  Загрузить файл
+                  <input type="file" accept="image/*" style="display:none" @change="uploadContractorLogo($event.target.files[0])">
+                </label>
+                <button type="button" class="btn btn-ghost btn-sm" @click="fetchContractorFavicon()">С сайта</button>
+                <button type="button" class="btn btn-ghost btn-sm" @click="deleteContractorLogo()" x-show="simpleForm?.data?.logo_url">Удалить</button>
+              </div>
+              <div class="logo-picker-hint" x-show="!simpleForm?.data?.name">
+                Введите название — затем можно загрузить логотип
+              </div>
+              <div class="logo-picker-hint" x-show="simpleForm?.data?.name">
+                PNG, JPG, SVG, WebP — до 2 МБ. «С сайта» подберёт favicon автоматически.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" @click="simpleForm = null">Отмена</button>
+      <button class="btn" @click="saveSimple()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+</template>
+
+<!-- ===== Смена своего пароля ===== -->
+<template x-if="pwForm">
+<div @mousedown.self="backdropDown = true"
+     @mouseup.self="if (backdropDown) pwForm = null; backdropDown = false"
+     class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Смена пароля</h3>
+      <button class="modal-close" @click="pwForm = null">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div>
+          <label class="form-label">Текущий пароль</label>
+          <input type="password" x-model="pwForm.old_password" autocomplete="current-password">
+        </div>
+        <div>
+          <label class="form-label">Новый пароль</label>
+          <input type="password" x-model="pwForm.new_password" autocomplete="new-password">
+        </div>
+        <div>
+          <label class="form-label">Повторите новый пароль</label>
+          <input type="password" x-model="pwForm.confirm" autocomplete="new-password"
+                 @keydown.enter="saveChangePassword()">
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" @click="pwForm = null">Отмена</button>
+      <button class="btn" @click="saveChangePassword()">Сохранить</button>
+    </div>
+  </div>
+</div>
+</template>
+
+<div class="toast-stack">
+  <template x-for="t in toasts" :key="t.id">
+    <div class="toast" :class="t.type" x-text="t.text"></div>
+  </template>
+</div>
+
+<script src="/static/app.js?v=__BUILD__"></script>
+</body>
+</html>

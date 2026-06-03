@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="12" fill="#fff" stroke="#e0e0e0"/>
+  <g transform="translate(11 22)">
+    <g>
+      <path d="M11.6 6.5c0-.5 0-.9-.1-1.4H6v2.6h3.1c-.1.7-.5 1.4-1.2 1.8v1.5h2c1.1-1 1.7-2.5 1.7-4.5z" fill="#4285F4"/>
+      <path d="M6 12c1.6 0 3-.5 4-1.4l-2-1.5c-.5.4-1.2.6-2 .6-1.5 0-2.8-1-3.3-2.4H.6v1.5C1.6 10.8 3.7 12 6 12z" fill="#34A853"/>
+      <path d="M2.7 7.3c-.1-.4-.2-.8-.2-1.3s.1-.9.2-1.3V3.2H.6C.2 4 0 4.9 0 6s.2 2 .6 2.8l2.1-1.5z" fill="#FBBC04"/>
+      <path d="M6 2.4c.9 0 1.6.3 2.3.9l1.7-1.7C8.9.6 7.6 0 6 0 3.7 0 1.6 1.2.6 3.2L2.7 4.7c.5-1.4 1.8-2.3 3.3-2.3z" fill="#EA4335"/>
+    </g>
+    <text x="16" y="9" font-family="Product Sans, Arial, sans-serif" font-size="10" font-weight="500" fill="#5F6368">Pay</text>
+  </g>
+</svg>
