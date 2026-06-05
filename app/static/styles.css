@@ -936,6 +936,22 @@ select { cursor: pointer; }
 }
 .btn-paid:hover { background: #16715f; }
 
+/* ====== Update notice ====== */
+.update-notice {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-size: 14px;
+}
+.update-notice.available {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+.update-notice a { color: var(--accent); font-weight: 600; }
+.update-notice .update-err { color: var(--warn, #FFA200); }
+
 /* ====== Version badge ====== */
 .version-badge {
   display: inline-block;
@@ -1514,10 +1530,127 @@ select { cursor: pointer; }
 
 /* ====== Mobile ====== */
 @media (max-width: 768px) {
+  body { overflow-x: hidden; }
   main, .app-header-inner, .app-nav { padding-left: 16px; padding-right: 16px; }
   h1 { font-size: 20px; }
   .stat-value { font-size: 22px; }
-  .sub-grid { grid-template-columns: 1fr; }
   .user-strip > .user-name { display: none; }
   .filter-bar input { min-width: 100%; }
+
+  /* Прячем десктоп-навигацию, показываем гамбургер */
+  .app-nav { display: none !important; }
+  .nav-burger { display: flex !important; }
+
+  /* На мобиле — всегда крупные карточки (список ломается по ширине) */
+  .sub-grid { grid-template-columns: 1fr !important; }
+  .sub-grid.view-list .sub-card {
+    display: flex !important;
+    flex-direction: column !important;
+    height: auto !important;
+    min-height: 0 !important;
+    align-items: stretch !important;
+  }
+  .sub-grid.view-list .list-tag { position: static !important; transform: none !important; width: auto !important; align-self: flex-start; }
+  .sub-grid.view-list .sub-card-foot { width: 100% !important; justify-content: space-between !important; grid-column: auto !important; }
+  /* Переключатель вида прячем — на мобиле всегда крупный */
+  .view-toggle { display: none; }
+
+  /* Ничего не должно вылезать за край */
+  .stat-card, .sub-card, .list-row, .card, .contractor-card,
+  .user-row, table { max-width: 100%; box-sizing: border-box; }
+  .sub-card-name, .list-row-name { word-break: break-word; }
+
+  /* Таблицы пользователей/справочников — горизонтальный скролл вместо вылезания */
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* Строки дашборда (предстоящие/низкий баланс) — не вылезают */
+  .list-row { padding: 12px; gap: 8px; }
+  .list-row-main { min-width: 0; }
+  .list-row-name { white-space: normal; word-break: break-word; }
+  .list-row-right { flex-shrink: 0; text-align: right; }
+  .list-row-value { white-space: nowrap; font-size: 14px; }
+  .dash-logo { width: 28px; height: 28px; }
+
+  /* Модалки — не шире экрана, кнопки футера переносятся */
+  .modal { max-width: calc(100vw - 24px); width: calc(100vw - 24px); }
+  .modal-foot {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px;
+    justify-content: stretch;
+  }
+  .modal-foot .btn {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
 }
+
+/* ====== Гамбургер и мобильное меню ====== */
+.nav-burger {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--bg-card);
+  cursor: pointer;
+  padding: 0 9px;
+}
+.nav-burger span {
+  display: block;
+  height: 2px;
+  width: 100%;
+  background: var(--text);
+  border-radius: 2px;
+  transition: transform 0.2s, opacity 0.2s;
+}
+.nav-burger.open span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+.nav-burger.open span:nth-child(2) { opacity: 0; }
+.nav-burger.open span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+
+.mobile-menu {
+  position: fixed;
+  inset: 0;
+  top: 0;
+  z-index: 300;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(2px);
+}
+.mobile-menu-panel {
+  position: absolute;
+  top: 0; right: 0;
+  width: min(78vw, 300px);
+  height: 100%;
+  background: var(--bg-card);
+  border-left: 1px solid var(--border);
+  padding: 70px 12px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  box-shadow: -8px 0 30px rgba(0,0,0,0.3);
+}
+.mobile-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 16px;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+.mobile-menu-item:hover { background: var(--bg-hover); }
+.mobile-menu-item.active { background: var(--accent-dim); color: var(--accent); font-weight: 600; }
+.mobile-menu-check { color: var(--accent); }
+

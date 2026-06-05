@@ -12,6 +12,7 @@ import asyncio
 import json
 import sqlite3
 import zipfile
+import httpx
 
 from app.database import get_db, engine
 from app.models import (
@@ -667,6 +668,66 @@ def system_info(_: User = Depends(require_admin)):
         "build": BUILD,
         "python_version": os.popen("python --version").read().strip(),
     }
+
+
+# Репозиторий для проверки обновлений
+GITHUB_REPO = "vyalu/Oops"
+
+
+def _parse_version(v: str):
+    """'1.0.0' или 'v1.2.3' → (1,0,0) для сравнения. Нечисловые части игнорируются."""
+    v = (v or "").strip().lstrip("vV")
+    parts = []
+    for p in v.split("."):
+        num = "".join(ch for ch in p if ch.isdigit())
+        parts.append(int(num) if num else 0)
+    while len(parts) < 3:
+        parts.append(0)
+    return tuple(parts[:3])
+
+
+@router.get("/check-update")
+def check_update(_: User = Depends(require_admin)):
+    """Проверяет последний релиз на GitHub. Ничего не скачивает и не применяет —
+    только сообщает, есть ли версия новее текущей, и даёт ссылку."""
+    from app.version import VERSION
+    current = VERSION
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+    try:
+        with httpx.Client(timeout=8.0) as client:
+            r = client.get(url, headers={"Accept": "application/vnd.github+json"})
+        if r.status_code == 404:
+            # Релизов ещё нет — пробуем теги
+            with httpx.Client(timeout=8.0) as client:
+                rt = client.get(f"https://api.github.com/repos/{GITHUB_REPO}/tags",
+                                headers={"Accept": "application/vnd.github+json"})
+            tags = rt.json() if rt.status_code == 200 else []
+            if not tags:
+                return {"available": False, "current": current, "latest": None,
+                        "message": "На GitHub пока нет релизов или тегов."}
+            latest = tags[0].get("name", "")
+            html_url = f"https://github.com/{GITHUB_REPO}/tags"
+            notes = ""
+        elif r.status_code == 200:
+            data = r.json()
+            latest = data.get("tag_name") or data.get("name") or ""
+            html_url = data.get("html_url") or f"https://github.com/{GITHUB_REPO}/releases"
+            notes = (data.get("body") or "")[:500]
+        else:
+            return {"available": False, "current": current, "latest": None,
+                    "error": f"GitHub ответил {r.status_code}"}
+
+        available = _parse_version(latest) > _parse_version(current)
+        return {
+            "available": available,
+            "current": current,
+            "latest": latest,
+            "url": html_url,
+            "notes": notes,
+        }
+    except Exception as e:
+        return {"available": False, "current": current, "latest": None,
+                "error": f"Не удалось связаться с GitHub: {e}"}
 
 
 @router.get("/backups")

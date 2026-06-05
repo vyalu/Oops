@@ -37,8 +37,13 @@
       <span class="user-name" x-text="currentUser?.full_name || currentUser?.username"></span>
       <span class="user-role" :class="currentUser?.role" x-text="roleLabel(currentUser?.role)"></span>
       <button class="btn-logout" @click="logout()">Выход</button>
+      <!-- Гамбургер (только на мобильных) -->
+      <button class="nav-burger" @click="mobileMenuOpen = !mobileMenuOpen" :class="{open: mobileMenuOpen}" aria-label="Меню">
+        <span></span><span></span><span></span>
+      </button>
     </div>
   </div>
+  <!-- Десктоп-навигация -->
   <nav class="app-nav">
     <template x-for="t in tabs" :key="t.id">
       <button :class="{active: tab === t.id}" @click="tab = t.id">
@@ -46,6 +51,18 @@
       </button>
     </template>
   </nav>
+  <!-- Мобильное выпадающее меню -->
+  <div class="mobile-menu" x-show="mobileMenuOpen" @click.self="mobileMenuOpen = false" style="display: none;">
+    <div class="mobile-menu-panel">
+      <template x-for="t in tabs" :key="t.id">
+        <button class="mobile-menu-item" :class="{active: tab === t.id}"
+                @click="tab = t.id; mobileMenuOpen = false">
+          <span x-text="t.label"></span>
+          <span x-show="tab === t.id" class="mobile-menu-check">✓</span>
+        </button>
+      </template>
+    </div>
+  </div>
 </header>
 
 <main>
@@ -86,8 +103,8 @@
       <div>
         <template x-for="s in stats.low_balance" :key="s.id">
           <div class="list-row" @click="openSubDetails(s.id)" style="border-bottom: 1px solid var(--border)">
-            <div class="dash-logo" x-show="s.logo_url">
-              <img :src="s.logo_url" alt="" @error="$event.target.parentElement.style.display='none'">
+            <div class="dash-logo" x-show="logoSrc(s.logo_url)">
+              <img :src="logoSrc(s.logo_url)" alt="" @error="$event.target.parentElement.style.display='none'">
             </div>
             <div class="list-row-main">
               <div class="list-row-name" x-text="s.name"></div>
@@ -110,8 +127,8 @@
       <div>
         <template x-for="s in stats.overdue" :key="s.id">
           <div class="list-row" @click="openSubDetails(s.id)" style="border-bottom: 1px solid var(--border)">
-            <div class="dash-logo" x-show="s.logo_url">
-              <img :src="s.logo_url" alt="" @error="$event.target.parentElement.style.display='none'">
+            <div class="dash-logo" x-show="logoSrc(s.logo_url)">
+              <img :src="logoSrc(s.logo_url)" alt="" @error="$event.target.parentElement.style.display='none'">
             </div>
             <div class="list-row-main">
               <div class="list-row-name" x-text="s.name"></div>
@@ -134,8 +151,8 @@
       <div class="grid-2col" x-show="stats.upcoming?.length">
         <template x-for="s in stats.upcoming" :key="s.id">
           <div class="list-row card-row" @click="openSubDetails(s.id)">
-            <div class="dash-logo" x-show="s.logo_url">
-              <img :src="s.logo_url" alt="" @error="$event.target.parentElement.style.display='none'">
+            <div class="dash-logo" x-show="logoSrc(s.logo_url)">
+              <img :src="logoSrc(s.logo_url)" alt="" @error="$event.target.parentElement.style.display='none'">
             </div>
             <div class="list-row-main">
               <div class="list-row-name" x-text="s.name"></div>
@@ -231,9 +248,9 @@
           <div class="sub-card-head">
             <div class="sub-card-identity">
               <div class="logo"
-                   :class="{ 'lg': subView === 'large', 'has-logo': !!(s.contractor?.logo_url || s.logo) }">
-                <img x-show="s.contractor?.logo_url || s.logo" :src="s.contractor?.logo_url || s.logo || ''" :alt="s.contractor?.name || s.name || ''" @error="$event.target.style.display='none'">
-                <span x-show="!(s.contractor?.logo_url || s.logo)" x-text="contractorInitials(s.contractor) || '·'"></span>
+                   :class="{ 'lg': subView === 'large', 'has-logo': !!(logoSrc(s.contractor?.logo_url) || logoSrc(s.logo)) }">
+                <img x-show="logoSrc(s.contractor?.logo_url) || logoSrc(s.logo)" :src="logoSrc(s.contractor?.logo_url) || logoSrc(s.logo)" :alt="s.contractor?.name || s.name || ''" @error="$event.target.style.display='none'">
+                <span x-show="!(logoSrc(s.contractor?.logo_url) || logoSrc(s.logo))" x-text="contractorInitials(s.contractor) || '·'"></span>
               </div>
               <div style="min-width:0; flex:1">
                 <div class="sub-card-name" x-text="s.name"></div>
@@ -312,7 +329,7 @@
               <span class="expand-val" x-text="s.notes"></span>
             </div>
             <div class="expand-actions">
-              <button class="btn btn-sm btn-paid" @click.stop="markPaid(s)" x-show="canEdit() && !s.auto_renew && (s.sub_type === 'recurring' || s.sub_type === 'onetime')">✓ Продлено</button>
+              <button class="btn btn-sm btn-paid" @click.stop="markPaid(s)" x-show="canEdit() && !s.auto_renew && (s.sub_type === 'recurring' || s.sub_type === 'onetime')">✓ Отметить оплату</button>
               <a x-show="s.url" :href="s.url" target="_blank" class="btn btn-ghost btn-sm" @click.stop>Открыть сайт</a>
               <button class="btn btn-ghost btn-sm" @click.stop="openSubDetails(s.id)">Подробнее</button>
               <button class="btn btn-ghost btn-sm" @click.stop="openSubForm(s); expandedSub = null" x-show="canEdit()">Редактировать</button>
@@ -372,7 +389,7 @@
       <template x-for="c in contractors" :key="c.id">
         <div class="contractor-card">
           <div class="logo lg" :class="{ 'has-logo': !!c.logo_url }">
-            <img x-show="c.logo_url" :src="c.logo_url" :alt="c.name" @error="$event.target.style.display='none'">
+            <img x-show="logoSrc(c.logo_url)" :src="logoSrc(c.logo_url)" :alt="c.name" @error="$event.target.style.display='none'">
             <span x-show="!c.logo_url" x-text="contractorInitials(c)"></span>
           </div>
           <div class="contractor-card-body">
@@ -503,6 +520,7 @@
       </div>
       <button class="btn" @click="openUserForm()">+ Новый</button>
     </div>
+    <div class="table-wrap">
     <table class="table">
       <thead>
         <tr>
@@ -528,6 +546,7 @@
         </template>
       </tbody>
     </table>
+    </div>
   </div>
 
   <!-- ===== WEBHOOKS ===== -->
@@ -610,9 +629,30 @@
         <h1>Система</h1>
         <div class="meta">Обновление приложения</div>
       </div>
-      <div class="page-header-right" x-show="appVersion">
+      <div class="page-header-right" x-show="appVersion" style="display:flex; align-items:center; gap:10px">
         <span class="version-badge" x-text="appVersion"></span>
+        <button class="btn btn-ghost btn-sm" @click="checkUpdate()" :disabled="updateChecking">
+          <span x-show="!updateChecking">Проверить обновления</span>
+          <span x-show="updateChecking">Проверяю…</span>
+        </button>
       </div>
+    </div>
+
+    <div x-show="updateInfo" class="update-notice" :class="{ available: updateInfo?.available }">
+      <template x-if="updateInfo?.available">
+        <div>
+          <strong>Доступна новая версия: <span x-text="updateInfo.latest"></span></strong>
+          (у вас <span x-text="updateInfo.current"></span>).
+          <a :href="updateInfo.url" target="_blank" rel="noopener">Открыть на GitHub →</a>
+          <div class="form-hint" style="margin-top:6px">Скачайте архив и загрузите его ниже в блоке обновления.</div>
+        </div>
+      </template>
+      <template x-if="updateInfo && !updateInfo.available && !updateInfo.error">
+        <div>У вас актуальная версия (<span x-text="updateInfo.current"></span>).</div>
+      </template>
+      <template x-if="updateInfo?.error">
+        <div class="update-err" x-text="updateInfo.error"></div>
+      </template>
     </div>
 
     <div class="warning-banner">
@@ -687,9 +727,9 @@
   <div class="modal" x-show="subDetails">
     <div class="modal-head">
       <div style="display:flex; align-items:center; gap:14px; min-width:0; flex:1">
-        <div class="logo lg" x-show="subDetails?.contractor || subDetails?.logo" :class="{ 'has-logo': !!(subDetails?.contractor?.logo_url || subDetails?.logo) }">
-          <img x-show="subDetails?.contractor?.logo_url || subDetails?.logo" :src="subDetails?.contractor?.logo_url || subDetails?.logo || ''" :alt="subDetails?.contractor?.name || subDetails?.name || ''" @error="$event.target.style.display='none'">
-          <span x-show="!(subDetails?.contractor?.logo_url || subDetails?.logo)" x-text="contractorInitials(subDetails?.contractor)"></span>
+        <div class="logo lg" x-show="subDetails?.contractor || logoSrc(subDetails?.logo)" :class="{ 'has-logo': !!(subDetails?.contractor?.logo_url || logoSrc(subDetails?.logo)) }">
+          <img x-show="logoSrc(subDetails?.contractor?.logo_url) || logoSrc(subDetails?.logo)" :src="logoSrc(subDetails?.contractor?.logo_url) || logoSrc(subDetails?.logo)" :alt="subDetails?.contractor?.name || subDetails?.name || ''" @error="$event.target.style.display='none'">
+          <span x-show="!(subDetails?.contractor?.logo_url || logoSrc(subDetails?.logo))" x-text="contractorInitials(subDetails?.contractor)"></span>
         </div>
         <div style="min-width:0">
           <div class="meta" x-text="typeLabel(subDetails?.sub_type)"></div>
@@ -709,9 +749,11 @@
       </div>
     </div>
     <div class="modal-foot" x-show="canEdit()">
-      <button class="btn btn-danger" @click="deleteItem('subscriptions', subDetails.id); subDetails = null">Удалить</button>
       <button class="btn btn-ghost" @click="subDetails = null">Закрыть</button>
-      <button class="btn" @click="openSubForm(subDetails); subDetails = null">Редактировать</button>
+      <button class="btn btn-danger" @click="deleteItem('subscriptions', subDetails.id); subDetails = null">Удалить</button>
+      <button class="btn btn-ghost" @click="openSubForm(subDetails); subDetails = null">Редактировать</button>
+      <button class="btn btn-paid" @click="markPaid(subDetails); subDetails = null"
+              x-show="!subDetails?.auto_renew && (subDetails?.sub_type === 'recurring' || subDetails?.sub_type === 'onetime')">✓ Отметить оплату</button>
     </div>
   </div>
 </div>
@@ -849,7 +891,7 @@
             <span class="toggle-label">Продлевается автоматически</span>
           </label>
           <div class="form-hint" style="margin-bottom:12px">
-            Если включено — платёж списывается автоматически, кнопка «Продлено» не нужна.
+            Если включено — платёж списывается автоматически, отмечать оплату вручную не нужно.
           </div>
 
           <label class="toggle-row">
@@ -869,7 +911,7 @@
                     <option :value="String(d)" x-text="d === 0 ? 'в день платежа' : (d + ' ' + dayWord(d) + ' до платежа')"></option>
                   </template>
                 </select>
-                <div class="form-hint">Дальше напоминает каждый день, пока не нажмёте «Продлено».</div>
+                <div class="form-hint">Дальше напоминает каждый день, пока не отметите оплату.</div>
               </div>
               <div>
                 <label class="form-label">Дата отмены подписки (опционально)</label>
@@ -893,8 +935,8 @@
               <label class="form-label">Контрагент</label>
               <div class="search-dropdown" @click.outside="contractorSearchOpen = false; contractorSearch = ''">
                 <div class="search-dropdown-field" :class="{ open: contractorSearchOpen }">
-                  <img x-show="!contractorSearchOpen && selectedContractor()?.logo_url"
-                       :src="selectedContractor()?.logo_url || ''" alt=""
+                  <img x-show="!contractorSearchOpen && logoSrc(selectedContractor()?.logo_url)"
+                       :src="logoSrc(selectedContractor()?.logo_url)" alt=""
                        class="search-dropdown-field-logo">
                   <input type="text"
                          x-ref="contractorSearchInput"
@@ -911,7 +953,7 @@
                     <div class="icon-dropdown-item" :class="{ active: !subForm.contractor_id }" @click="pickContractor('')">— не выбран —</div>
                     <template x-for="c in filteredContractors()" :key="c.id">
                       <div class="icon-dropdown-item" :class="{ active: String(subForm.contractor_id) === String(c.id) }" @click="pickContractor(c.id)">
-                        <img x-show="c.logo_url" :src="c.logo_url" alt="" style="width:20px;height:20px;object-fit:contain">
+                        <img x-show="logoSrc(c.logo_url)" :src="logoSrc(c.logo_url)" alt="" style="width:20px;height:20px;object-fit:contain">
                         <span x-text="c.name"></span>
                       </div>
                     </template>
@@ -1020,18 +1062,17 @@
 
 <!-- ===== Универсальная форма ===== -->
 </template>
-<template x-if="simpleForm">
-<div x-show="simpleForm"
-     @mousedown.self="backdropDown = true"
-     @mouseup.self="if (backdropDown) simpleForm = null; backdropDown = false"
+<template x-if="simpleForm.open">
+<div @mousedown.self="backdropDown = true"
+     @mouseup.self="if (backdropDown) closeSimpleForm(); backdropDown = false"
      class="modal-backdrop">
-  <div class="modal" x-show="simpleForm">
+  <div class="modal">
     <div class="modal-head">
       <div>
         <div class="meta" x-text="simpleForm?.data?.id ? 'Редактирование' : 'Создание'"></div>
         <h3 x-text="simpleForm?.title"></h3>
       </div>
-      <button class="modal-close" @click="simpleForm = null">×</button>
+      <button class="modal-close" @click="closeSimpleForm()">×</button>
     </div>
     <div class="modal-body">
       <div class="form-grid">
@@ -1224,10 +1265,11 @@
           <label class="form-label">Логотип</label>
           <div class="logo-picker">
             <div class="logo xl" :title="simpleForm?.data?.name" :class="{ 'has-logo': !!simpleForm?.data?.logo_url }">
-              <img x-show="simpleForm?.data?.logo_url"
-                   :src="simpleForm?.data?.logo_url || ''"
-                   :alt="simpleForm?.data?.name || ''"
-                   @error="if (simpleForm?.data) simpleForm.data.logo_url = ''">
+              <template x-if="logoSrc(simpleForm?.data?.logo_url)">
+                <img :src="logoSrc(simpleForm.data.logo_url)"
+                     :alt="simpleForm?.data?.name || ''"
+                     @error="if (simpleForm?.data) simpleForm.data.logo_url = ''">
+              </template>
               <span x-show="!simpleForm?.data?.logo_url" x-text="contractorInitials(simpleForm?.data)"></span>
             </div>
             <div class="logo-picker-actions">
@@ -1251,7 +1293,7 @@
       </div>
     </div>
     <div class="modal-foot">
-      <button class="btn btn-ghost" @click="simpleForm = null">Отмена</button>
+      <button class="btn btn-ghost" @click="closeSimpleForm()">Отмена</button>
       <button class="btn" @click="saveSimple()">Сохранить</button>
     </div>
   </div>

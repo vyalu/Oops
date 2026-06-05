@@ -1,7 +1,39 @@
+// Глобальная защита: не даём <img> грузить src, который не является ссылкой
+// (имена контрагентов/организаций иногда протекают в :src при рендере Alpine).
+// Перехватываем setAttribute('src', ...) и пропускаем только валидные пути.
+(function () {
+  const looksLikeUrl = (v) => typeof v === 'string' &&
+    (/^\//.test(v) || /^https?:/.test(v) || /^data:/.test(v) || /^blob:/.test(v));
+  const origSetAttr = Element.prototype.setAttribute;
+  Element.prototype.setAttribute = function (name, value) {
+    if (this.tagName === 'IMG' && name === 'src' && value && !looksLikeUrl(value)) {
+      // мусорный src (имя вместо ссылки) — не ставим, прячем картинку
+      this.removeAttribute('src');
+      this.style.display = 'none';
+      return;
+    }
+    return origSetAttr.call(this, name, value);
+  };
+  // На случай прямой установки через свойство .src
+  const desc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+  if (desc && desc.set) {
+    Object.defineProperty(HTMLImageElement.prototype, 'src', {
+      configurable: true,
+      enumerable: desc.enumerable,
+      get: desc.get,
+      set(value) {
+        if (value && !looksLikeUrl(value)) { this.style.display = 'none'; return; }
+        desc.set.call(this, value);
+      },
+    });
+  }
+})();
+
 function app() {
   return {
     currentUser: null,
     tab: 'dashboard',
+    mobileMenuOpen: false,
     toasts: [],
     theme: 'dark',
 
@@ -78,7 +110,7 @@ function app() {
 
     subForm: null,
     subDetails: null,
-    simpleForm: null,
+    simpleForm: { open: false, data: {}, fields: [], title: '' },
 
     // Кастомный dropdown с иконками (категория/способ оплаты в форме подписки)
     iconDropdown: '', // '' | 'category' | 'payment'
@@ -92,6 +124,8 @@ function app() {
     importLog: '',
     backups: [],
     appVersion: '',
+    updateChecking: false,
+    updateInfo: null,
     backdropDown: false,
 
     get tabs() {
@@ -109,6 +143,11 @@ function app() {
         base.push({ id: 'system', label: 'Система' });
       }
       return base;
+    },
+
+    get currentTabLabel() {
+      const t = this.tabs.find(x => x.id === this.tab);
+      return t ? t.label : '';
     },
 
     get filteredSubs() {
@@ -248,6 +287,18 @@ function app() {
       }
     },
 
+    async checkUpdate() {
+      this.updateChecking = true;
+      this.updateInfo = null;
+      try {
+        this.updateInfo = await this.api('/api/system/check-update');
+      } catch (e) {
+        this.updateInfo = { error: 'Не удалось проверить обновления' };
+      } finally {
+        this.updateChecking = false;
+      }
+    },
+
     async loadBackups() {
       try {
         const r = await this.api('/api/system/backups');
@@ -349,6 +400,14 @@ function app() {
       if (this.currentUser?.role === 'admin') {
         await Promise.all([this.loadUsers(), this.loadWebhooks()]);
       }
+    },
+
+    // Возвращает logo только если это валидный URL (а не мусорное имя из legacy-поля)
+    logoSrc(v) {
+      if (typeof v !== 'string') return '';
+      const t = v.trim();
+      if (t.startsWith('/') || t.startsWith('http://') || t.startsWith('https://') || t.startsWith('data:')) return t;
+      return '';
     },
 
     // Хелпер: иконка может быть эмодзи или URL (/static/icons/...)
@@ -684,6 +743,7 @@ function app() {
 
     openOrgForm(o) {
       this.simpleForm = {
+        open: true,
         title: o ? 'Изменить организацию' : 'Новая организация',
         endpoint: '/api/organizations/',
         data: o ? { ...o } : { name: '', inn: '', notes: '' },
@@ -698,6 +758,7 @@ function app() {
 
     openContractorForm(c) {
       this.simpleForm = {
+        open: true,
         title: c ? 'Изменить контрагента' : 'Новый контрагент',
         endpoint: '/api/contractors/',
         data: c ? { ...c } : { name: '', inn: '', website: '', contact_info: '', logo_url: '', notes: '' },
@@ -803,6 +864,7 @@ function app() {
 
     openEmployeeForm(e) {
       this.simpleForm = {
+        open: true,
         title: e ? 'Изменить сотрудника' : 'Новый сотрудник',
         endpoint: '/api/employees/',
         data: e ? { ...e } : { full_name: '', position: '', email: '', phone: '' },
@@ -818,6 +880,7 @@ function app() {
 
     openCategoryForm(c) {
       this.simpleForm = {
+        open: true,
         title: c ? 'Изменить категорию' : 'Новая категория',
         endpoint: '/api/categories/',
         data: c ? { ...c } : { name: '', icon: '/static/icons/builtin/cat-other.svg' },
@@ -831,6 +894,7 @@ function app() {
 
     openPaymentMethodForm(p) {
       this.simpleForm = {
+        open: true,
         title: p ? 'Изменить способ оплаты' : 'Новый способ оплаты',
         endpoint: '/api/payment-methods/',
         data: p ? { ...p } : { name: '', details: '', icon: '/static/icons/builtin/card.svg' },
@@ -845,6 +909,7 @@ function app() {
 
     openUserForm(u) {
       this.simpleForm = {
+        open: true,
         title: u ? 'Изменить пользователя' : 'Новый пользователь',
         endpoint: '/api/users/',
         data: u ? { ...u, password: '' } : { username: '', password: '', full_name: '', role: 'viewer' },
@@ -895,6 +960,7 @@ function app() {
       };
 
       this.simpleForm = {
+        open: true,
         title: w ? 'Изменить канал уведомлений' : 'Новый канал уведомлений',
         endpoint: '/api/webhooks/',
         data,
@@ -927,6 +993,12 @@ function app() {
       };
     },
 
+    closeSimpleForm() {
+      // Просто скрываем форму. data/fields остаются объектами (не null),
+      // поэтому x-model и x-for внутри никогда не упираются в null.
+      this.simpleForm.open = false;
+    },
+
     async saveSimple() {
       if (!this.simpleForm) return;
       const sf = this.simpleForm;
@@ -938,7 +1010,7 @@ function app() {
       try {
         await this.api(url, { method, body: JSON.stringify(body) });
         this.toast('Сохранено');
-        this.simpleForm = null;
+        this.closeSimpleForm();
         if (sf.reload) await sf.reload();
         await this.loadStats();
       } catch {}
@@ -973,12 +1045,11 @@ function app() {
     },
 
     async markPaid(s) {
-      const label = s.sub_type === 'onetime' ? 'оплаченным' : 'продлённым';
-      if (!confirm(`Отметить «${s.name}» как ${label}? Напоминание об этом платеже больше не придёт.`)) return;
+      if (!confirm(`Отметить оплату по «${s.name}»? Напоминания об этом платеже прекратятся до следующего периода.`)) return;
       try {
         const r = await this.api(`/api/subscriptions/${s.id}/mark-paid`, { method: 'POST' });
         if (r?.success) {
-          this.toast('Отмечено как оплачено');
+          this.toast('Оплата отмечена');
           await this.loadSubscriptions();
           await this.loadStats();
         }
