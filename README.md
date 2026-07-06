@@ -27,8 +27,6 @@
 
 </div>
 
-> Положите свои скриншоты в `docs/screenshots/` (`dashboard.png`, `subscriptions.png`) — они появятся здесь автоматически. Подробнее — в `docs/screenshots/README.md`.
-
 ---
 
 ## ✨ Возможности
