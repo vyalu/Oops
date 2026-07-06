@@ -1,0 +1,44 @@
+# Боевые данные — НИКОГДА не коммитить (база с паролями, секретный ключ, бэкапы, логотипы)
+data/
+!data/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+secret.key
+
+# Переменные окружения с секретами
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+venv/
+.venv/
+env/
+
+# Caddy runtime (если монтируется локально)
+caddy_data/
+caddy_config/
+
+# Сборки/архивы
+*.tar.gz
+*.zip
+dist/
+build/
+
+# Системное / редакторы
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.log
+
+# Архив ранней истории разработки (не для публичного репо)
+CHANGELOG.full.md.bak

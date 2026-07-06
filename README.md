@@ -7,13 +7,27 @@
 Самохостящееся веб-приложение для контроля подписок, регулярных и разовых платежей.
 Один контейнер, SQLite внутри — никаких внешних баз настраивать не нужно.
 
-![version](https://img.shields.io/badge/version-1.0.87-blue)
+![version](https://img.shields.io/badge/version-1.2.0-blue)
 ![platform](https://img.shields.io/badge/Ubuntu-22.04%20%7C%2024.04-E95420?logo=ubuntu&logoColor=white)
 ![python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 </div>
+
+---
+
+## 📸 Скриншоты
+
+<div align="center">
+
+| Сводка (дашборд) | Список подписок |
+|:---:|:---:|
+| ![Дашборд](docs/screenshots/dashboard.png) | ![Подписки](docs/screenshots/subscriptions.png) |
+
+</div>
+
+> Положите свои скриншоты в `docs/screenshots/` (`dashboard.png`, `subscriptions.png`) — они появятся здесь автоматически. Подробнее — в `docs/screenshots/README.md`.
 
 ---
 
@@ -73,14 +87,33 @@ sudo usermod -aG docker $USER
 
 ### Запуск
 
-Вариант 1 — из Git:
+**Вариант 0 — быстрый старт из готового образа (рекомендуется).**
+Не требует скачивания исходников и сборки — образ тянется из реестра автоматически.
+
 ```bash
-git clone https://github.com/ВАШ_АККАУНТ/oops.git
-cd oops
+# создаём папку и качаем готовый compose-файл
+mkdir oops && cd oops
+curl -o docker-compose.yml https://raw.githubusercontent.com/vyalu/Oops/main/docker-compose.prod.yml
+docker compose up -d
+```
+
+Готово — приложение доступно на `http://IP-сервера:8383` (логин/пароль по умолчанию `admin` / `admin`, смените после входа).
+
+Обновление до новой версии:
+```bash
+docker compose pull && docker compose up -d
+```
+
+> Данные (`./data`) при обновлении сохраняются — образ обновляется, база остаётся.
+
+**Вариант 1 — из Git (для разработки / правки кода):**
+```bash
+git clone https://github.com/vyalu/Oops.git
+cd Oops
 docker compose up -d --build
 ```
 
-Вариант 2 — из архива:
+**Вариант 2 — из архива:**
 ```bash
 tar -xzf oops.tar.gz
 cd oops
@@ -144,9 +177,53 @@ docker compose up -d --build
 ## Настройка
 
 В `docker-compose.yml`:
-- **Порт**: измените `8383:8000` на свой (первое — внешний порт)
+- **Порт**: измените `8383:8000` на свой (первое число — внешний порт)
 - **Часовой пояс**: переменная `TZ` (по умолчанию `Europe/Moscow`)
 - **`SECRET_KEY`** для JWT — **обязательно** замените в продакшене на длинную случайную строку
+
+### Как сменить порт
+
+Приложение внутри контейнера всегда слушает порт `8000`. Наружу его выводит Docker — за это отвечает левое число в строке `ports`. Чтобы открывать сайт на другом порту, отредактируйте `docker-compose.yml`:
+
+```yaml
+ports:
+  - "8383:8000"    # сайт доступен на http://IP-сервера:8383
+```
+
+Примеры:
+- `"80:8000"` — открывать без порта: `http://IP-сервера`
+- `"9000:8000"` — на порту 9000: `http://IP-сервера:9000`
+
+После изменения примените:
+
+```bash
+docker compose down && docker compose up -d
+```
+
+> **Важно про порт 80.** Если порт 80 уже занят другим сервисом (например, системным веб-сервером Nginx или Caddy), контейнер не запустится с ошибкой `address already in use`. Сначала освободите порт 80 (остановите занявший его сервис) или выберите другой порт.
+
+### Как открывать по доменному имени
+
+Например, чтобы вместо `http://192.168.99.93` сайт открывался как `http://oops.loc.example.ru`. Само приложение уже принимает запросы по любому имени — нужно лишь направить имя на сервер. Два способа:
+
+**Способ 1 — через локальный DNS-сервер** (если он есть в вашей сети). Добавьте A-запись, указывающую имя на IP сервера:
+
+```
+oops.loc.example.ru.  →  192.168.99.93
+```
+
+**Способ 2 — через файл hosts** (на каждом компьютере, где нужен доступ). Пропишите строку:
+
+```
+192.168.99.93   oops.loc.example.ru
+```
+
+- Windows: `C:\Windows\System32\drivers\etc\hosts` (открыть Блокнотом от администратора)
+- Linux / macOS: `/etc/hosts` (редактировать через `sudo`)
+
+После этого сайт откроется по имени. Если приложение работает на порту 80 — просто `http://oops.loc.example.ru`, если на другом порту — с указанием порта, например `http://oops.loc.example.ru:8383`.
+
+> Чтобы получить красивый адрес без порта (`http://oops.loc.example.ru`), выведите приложение на порт 80 — см. раздел «Как сменить порт» выше.
 
 ## Роли
 
@@ -182,13 +259,7 @@ docker compose up -d --build
 ## API документация
 
 После запуска доступна по адресу: `https://ВАШ_ДОМЕН/docs`
----
 
-## Поддержать проект
-
-[![Donate](https://img.shields.io/badge/YooMoney-%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C-8B3FFD?style=for-the-badge)](https://yoomoney.ru/to/4100116126044784)
-
----
 ## Документация
 
 - [CHANGELOG.md](./CHANGELOG.md) — история изменений

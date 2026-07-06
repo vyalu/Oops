@@ -4,9 +4,9 @@ RELEASE — публичная версия (семантическая), пок
 BUILD — сквозной внутренний номер сборки; используется как cache-bust (?v=) для статики.
 """
 
-RELEASE = "1.0.1"
+RELEASE = "1.2.0"
 
 MAJOR = 1
-BUILD = 101
+BUILD = 153
 
 VERSION = RELEASE

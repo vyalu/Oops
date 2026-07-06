@@ -34,8 +34,35 @@ function app() {
     currentUser: null,
     tab: 'dashboard',
     mobileMenuOpen: false,
+    navMenu: '',
+    openTip: '',
+    tipX: 0,
+    tipY: 0,
+    tipTexts: {
+      type: 'Выберите, как оплачивается сервис:<br><br><b>Подписка</b> — платите фиксированную сумму каждый период (например, 500 ₽ в месяц за онлайн-сервис).<br><br><b>Баланс (Периодическое списание)</b> — держите деньги на счёте, раз в период списывается вся сумма сразу.<br><br><b>Баланс (Ежедневное списание)</b> — деньги на счёте тратятся понемногу каждый день (например, хостинг). Стоимость указываете за месяц.<br><br><b>Разовый платёж</b> — оплата один раз (лицензия, разовая услуга).',
+      bday: 'Число месяца, когда со счёта списывается сумма. Например, «5» — деньги спишутся 5-го числа каждого месяца.<br><br>Если оставить пустым, программа не будет сама вычитать деньги — вы ведёте баланс вручную.',
+      minbal: 'Когда денег на счёте останется меньше этой суммы, программа пришлёт предупреждение — пора пополнить.<br><br>Например, поставьте «1000»: как только баланс опустится до 1000 ₽, придёт уведомление. Оставьте 0, если не нужно.',
+      daysleft: 'Программа сама посчитает, на сколько дней хватит денег (делит баланс на дневной расход), и предупредит заранее.<br><br>Например, «10» — придёт уведомление, когда денег останется примерно на 10 дней. Работает, если указана стоимость за месяц.',
+      renew: 'Включите, если оплата списывается сама (например, привязана карта).<br><br>Тогда программа просто напомнит о платеже заранее, но не будет требовать отмечать оплату вручную. Если выключено — после оплаты нажимаете «Отметить оплату», чтобы платёж ушёл из списка предстоящих.',
+    },
+    appReady: false,
+    dashMode: 'year',
+    dashPeriod: '',
+    dashYear: '',
+    calRef: new Date(),
     toasts: [],
     theme: 'dark',
+    accent: 'amber',
+    accentColors: [
+      { id: 'amber',     name: 'Янтарь',    light: '#D97706', dark: '#E8951F' },
+      { id: 'terracotta',name: 'Терракота', light: '#C2612F', dark: '#DB8155' },
+      { id: 'emerald',   name: 'Изумруд',   light: '#0F766E', dark: '#2DD4BF' },
+      { id: 'indigo',    name: 'Индиго',    light: '#4F46E5', dark: '#818CF8' },
+      { id: 'rose',      name: 'Роза',      light: '#BE185D', dark: '#F472B6' },
+      { id: 'slate',     name: 'Графит',    light: '#475569', dark: '#94A3B8' },
+      { id: 'ocean',     name: 'Океан',     light: '#0369A1', dark: '#38BDF8' },
+      { id: 'olive',     name: 'Олива',     light: '#4D7C0F', dark: '#A3E635' },
+    ],
 
     // Смена своего пароля (для требования сменить admin/admin)
     pwForm: null,
@@ -123,15 +150,18 @@ function app() {
     updateLog: '',
     importLog: '',
     backups: [],
+    backupsExpanded: false,
     appVersion: '',
     updateChecking: false,
     updateInfo: null,
     backdropDown: false,
 
     get tabs() {
+      // Полный плоский список (для мобильного меню и поиска подписи)
       const base = [
         { id: 'dashboard', label: 'Сводка' },
         { id: 'subscriptions', label: 'Подписки' },
+        { id: 'calendar', label: 'Календарь' },
         { id: 'organizations', label: 'Организации' },
         { id: 'contractors', label: 'Контрагенты' },
         { id: 'employees', label: 'Сотрудники' },
@@ -144,6 +174,39 @@ function app() {
       }
       return base;
     },
+
+    // Основные вкладки — всегда на виду
+    get mainTabs() {
+      return [
+        { id: 'dashboard', label: 'Сводка' },
+        { id: 'subscriptions', label: 'Подписки' },
+        { id: 'calendar', label: 'Календарь' },
+      ];
+    },
+
+    // Группа «Справочники» (выпадающее меню)
+    get refTabs() {
+      return [
+        { id: 'organizations', label: 'Организации' },
+        { id: 'contractors', label: 'Контрагенты' },
+        { id: 'employees', label: 'Сотрудники' },
+        { id: 'categories', label: 'Категории и оплата' },
+      ];
+    },
+
+    // Группа «Администрирование» (только admin)
+    get adminTabs() {
+      if (this.currentUser?.role !== 'admin') return [];
+      return [
+        { id: 'webhooks', label: 'Уведомления' },
+        { id: 'users', label: 'Доступы' },
+        { id: 'system', label: 'Система' },
+      ];
+    },
+
+    // Активна ли вкладка из группы (для подсветки кнопки группы)
+    isRefActive() { return this.refTabs.some(t => t.id === this.tab); },
+    isAdminActive() { return this.adminTabs.some(t => t.id === this.tab); },
 
     get currentTabLabel() {
       const t = this.tabs.find(x => x.id === this.tab);
@@ -161,6 +224,310 @@ function app() {
       if (this.filterOrg) r = r.filter(s => s.organization_id == this.filterOrg);
       if (this.filterType) r = r.filter(s => s.sub_type === this.filterType);
       return r;
+    },
+
+    // Оценка «хватит до» для балансовых счетов: баланс ÷ стоимость за период.
+    // Возвращает {months, date} или null, если посчитать нельзя.
+    // Доли по организациям (для кольца на дашборде)
+    get orgShares() {
+      const list = this.stats.by_organization || [];
+      const total = list.reduce((s, o) => s + (o.monthly || 0), 0);
+      if (total <= 0) return [];
+      return list.map(o => ({
+        name: o.name,
+        monthly: o.monthly,
+        pct: Math.round((o.monthly / total) * 100),
+      }));
+    },
+
+    donutColor(i) {
+      const palette = ['var(--accent)', '#0EA5E9', '#10B981', '#94A3B8', '#A855F7', '#F43F5E', '#F59E0B', '#14B8A6'];
+      return palette[i % palette.length];
+    },
+
+    get donutSegments() {
+      const shares = this.orgShares;
+      const total = shares.reduce((s, o) => s + o.monthly, 0);
+      if (total <= 0) return [];
+      const C = 2 * Math.PI * 70;
+      let offset = 0;
+      return shares.map((sh, i) => {
+        const frac = sh.monthly / total;
+        const len = frac * C;
+        const seg = { color: this.donutColor(i), dash: `${len} ${C - len}`, offset: -offset };
+        offset += len;
+        return seg;
+      });
+    },
+
+    // Готовая SVG-разметка кольца (x-for внутри SVG в Alpine глючит — генерируем строкой)
+    get donutSvg() {
+      let s = '<circle cx="90" cy="90" r="70" fill="none" stroke="var(--line2)" stroke-width="18"/>';
+      for (const seg of this.donutSegments) {
+        s += `<circle cx="90" cy="90" r="70" fill="none" stroke="${seg.color}" stroke-width="18" stroke-dasharray="${seg.dash}" stroke-dashoffset="${seg.offset}" transform="rotate(-90 90 90)"/>`;
+      }
+      const n = this.orgShares.length;
+      s += `<text x="90" y="84" text-anchor="middle" font-size="30" font-weight="600" fill="var(--ink)" style="font-family:var(--mono)">${n}</text>`;
+      s += `<text x="90" y="104" text-anchor="middle" font-size="12" fill="var(--faint)">${this.orgWord(n)}</text>`;
+      return s;
+    },
+
+    // Готовая SVG-разметка графика динамики
+    get trendSvg() {
+      const pts = this.historyPoints;
+      if (pts.length < 2) return '';
+      const line = pts.map(p => `${p.x},${p.y}`).join(' ');
+      const last = pts[pts.length - 1];
+      const area = `${pts[0].x},${this.trendH} ` + line + ` ${last.x},${this.trendH}`;
+      let s = `<polyline points="${area}" fill="var(--accent-dim)" stroke="none"/>`;
+      s += `<polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+      for (const p of pts) {
+        s += `<circle cx="${p.x}" cy="${p.y}" r="3" fill="var(--accent)"/>`;
+      }
+      return s;
+    },
+
+    orgWord(n) {
+      const m10 = n % 10, m100 = n % 100;
+      if (m10 === 1 && m100 !== 11) return 'организация';
+      if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return 'организации';
+      return 'организаций';
+    },
+
+    toggleTip(id, ev) {
+      if (this.openTip === id) { this.openTip = ''; return; }
+      this.openTip = id;
+      const btn = ev.currentTarget;
+      const r = btn.getBoundingClientRect();
+      // позиционируем поповер под кнопкой, по центру
+      this.tipX = r.left + r.width / 2;
+      this.tipY = r.bottom + 8;
+    },
+
+    monthWord(n) {
+      const m10 = n % 10, m100 = n % 100;
+      if (m10 === 1 && m100 !== 11) return 'месяц';
+      if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return 'месяца';
+      return 'месяцев';
+    },
+
+    paymentWord(n) {
+      const m10 = n % 10, m100 = n % 100;
+      if (m10 === 1 && m100 !== 11) return 'платёж';
+      if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return 'платежа';
+      return 'платежей';
+    },
+
+    trendW: 600,
+    trendH: 180,
+
+    // История снимков (все периоды)
+    get dashHistory() {
+      return this.stats.history || [];
+    },
+    // Список годов из истории
+    get dashYears() {
+      const ys = new Set();
+      for (const h of this.dashHistory) ys.add((h.period || '').split('-')[0]);
+      return [...ys].filter(Boolean).sort();
+    },
+    periodLabel(period) {
+      const [y, m] = (period || '').split('-');
+      const mo = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+      return (mo[parseInt(m, 10) - 1] || '') + ' ' + y;
+    },
+    // Значение «Ежемесячно» под выбранный фильтр — строго по факту из снимков
+    get dashMonthly() {
+      if (this.dashMode === 'month') {
+        const snap = this.dashHistory.find(h => h.period === this.dashPeriod);
+        return snap ? snap.total : null;   // null = нет данных за этот месяц
+      }
+      // режим «Год»: средний фактический расход по месяцам, где есть снимки
+      const inYear = this.dashHistory.filter(h => (h.period || '').startsWith(this.dashYear + '-'));
+      if (!inYear.length) return null;
+      return inYear.reduce((s, h) => s + h.total, 0) / inYear.length;
+    },
+    // Значение «В год» под фильтр — сумма фактических снимков за год
+    get dashYearly() {
+      const inYear = this.dashHistory.filter(h => (h.period || '').startsWith(this.dashYear + '-'));
+      if (!inYear.length) return null;
+      return inYear.reduce((s, h) => s + h.total, 0);
+    },
+    // Сколько реальных месяцев учтено в текущем году (для подписи)
+    get dashYearMonths() {
+      return this.dashHistory.filter(h => (h.period || '').startsWith(this.dashYear + '-')).length;
+    },
+
+    // Инициал и цвет аватара по имени
+    initial(name) {
+      return (name || '?').trim().charAt(0).toUpperCase();
+    },
+    _avatarIdx(name) {
+      let h = 0;
+      const s = name || '';
+      for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+      return h % 8;
+    },
+    avatarBg(name) {
+      const bg = ['#FBEAD0','#DCEBFB','#D8F0DF','#EFEAF7','#FCE4EC','#E0F2F1','#FFF3E0','#ECEFF1'];
+      return bg[this._avatarIdx(name)];
+    },
+    avatarFg(name) {
+      const fg = ['#B45309','#1D66B0','#177245','#7C3AED','#C2185B','#00796B','#E65100','#455A64'];
+      return fg[this._avatarIdx(name)];
+    },
+    formatDayMonth(iso) {
+      if (!iso) return '';
+      const d = new Date(iso + (iso.length <= 10 ? 'T00:00:00' : ''));
+      const mo = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+      return d.getDate() + ' ' + mo[d.getMonth()];
+    },
+    orgBarPct(v) {
+      const list = this.stats.by_organization || [];
+      const max = Math.max(...list.map(o => o.monthly || 0), 1);
+      return Math.max(2, Math.round((v / max) * 100));
+    },
+
+    get historyPoints() {
+      const hist = this.stats.history || [];
+      if (hist.length < 2) return [];
+      const vals = hist.map(h => h.total);
+      const min = Math.min(...vals), max = Math.max(...vals);
+      const range = (max - min) || 1;
+      const W = this.trendW, H = this.trendH, padY = 24, padX = 10;
+      const stepX = (W - padX * 2) / (hist.length - 1);
+      const monthShort = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+      return hist.map((h, i) => {
+        const x = padX + i * stepX;
+        const y = H - padY - ((h.total - min) / range) * (H - padY * 2);
+        const mo = parseInt((h.period || '').split('-')[1], 10) - 1;
+        return { x: Math.round(x), y: Math.round(y), label: monthShort[mo] || '', total: h.total };
+      });
+    },
+
+    get trendLine() {
+      return this.historyPoints.map(p => `${p.x},${p.y}`).join(' ');
+    },
+
+    get trendArea() {
+      const pts = this.historyPoints;
+      if (pts.length < 2) return '';
+      const last = pts[pts.length - 1];
+      return `${pts[0].x},${this.trendH} ` + pts.map(p => `${p.x},${p.y}`).join(' ') + ` ${last.x},${this.trendH}`;
+    },
+
+    lastsEstimate(s) {
+      const balance = Number(s.balance) || 0;
+      const price = Number(s.price) || 0;
+      if (balance <= 0 || price <= 0) return null;
+
+      let totalDays;
+      if (s.sub_type === 'balance_daily' || s.daily_charge) {
+        // price — сумма за месяц, списывается посуточно
+        const perDay = price / 30;
+        totalDays = balance / perDay;
+      } else {
+        // обычный счёт: на сколько периодов хватит × длина периода
+        const cycle = s.cycle || 'monthly';
+        const freq = Number(s.frequency) || 1;
+        const daysPer = { daily: 1, weekly: 7, monthly: 30, yearly: 365,
+                          day: 1, week: 7, month: 30, year: 365 }[cycle] || 30;
+        const periodDays = daysPer * freq;
+        totalDays = (balance / price) * periodDays;
+      }
+
+      const months = totalDays / 30;
+      const until = new Date();
+      until.setDate(until.getDate() + Math.floor(totalDays));
+      return { months, totalDays, date: until };
+    },
+
+    // Подпись текущего месяца («Июнь 2026»)
+    get calLabel() {
+      const m = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+      return m[this.calRef.getMonth()] + ' ' + this.calRef.getFullYear();
+    },
+
+    calPrev() { const d = new Date(this.calRef); d.setMonth(d.getMonth() - 1); this.calRef = d; },
+    calNext() { const d = new Date(this.calRef); d.setMonth(d.getMonth() + 1); this.calRef = d; },
+    calToday() { this.calRef = new Date(); },
+
+    // Сетка календаря: массив недель, каждая — 7 ячеек {day, inMonth, isToday, events[]}
+    get calendarGrid() {
+      const year = this.calRef.getFullYear();
+      const month = this.calRef.getMonth();
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+
+      // все платежи этого месяца, разложенные по числу
+      const byDay = {};
+      const monthStart = new Date(year, month, 1);
+      const monthEnd = new Date(year, month + 1, 0);
+      for (const s of this.subscriptions) {
+        if (!s.is_active) continue;
+        const paidUntil = s.paid_until ? new Date(s.paid_until + 'T00:00:00') : null;
+        for (const d of this.upcomingPaymentDates(s, monthStart, monthEnd)) {
+          const k = d.getDate();
+          // оплачено: покрыто отметкой оплаты, либо автосписание с прошедшей датой
+          const paid = (paidUntil && paidUntil >= d) || (s.auto_renew && d < today);
+          (byDay[k] = byDay[k] || []).push({
+            id: s.id, name: s.name, amount: Number(s.price) || 0,
+            currency: s.currency || 'RUB', logo_url: s.contractor?.logo_url || '',
+            paid,
+          });
+        }
+      }
+
+      // первый день сетки — понедельник недели, в которую попадает 1-е число
+      const firstDow = (monthStart.getDay() + 6) % 7; // 0=Пн
+      const gridStart = new Date(year, month, 1 - firstDow);
+
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const weeksNeeded = Math.ceil((firstDow + daysInMonth) / 7);
+
+      // плоский массив ячеек — порядок гарантированно правильный (сверху вниз)
+      const cells = [];
+      let cur = new Date(gridStart);
+      for (let i = 0; i < weeksNeeded * 7; i++) {
+        const inMonth = cur.getMonth() === month;
+        cells.push({
+          key: cur.getFullYear() + '-' + cur.getMonth() + '-' + cur.getDate(),
+          day: cur.getDate(),
+          inMonth,
+          isToday: cur.getTime() === today.getTime(),
+          events: inMonth ? (byDay[cur.getDate()] || []) : [],
+        });
+        cur.setDate(cur.getDate() + 1);
+      }
+      return cells;
+    },
+
+    // Сумма платежей за отображаемый месяц
+    get calMonthTotal() {
+      let t = 0;
+      for (const cell of this.calendarGrid)
+        for (const e of cell.events) t += e.amount;
+      return t;
+    },
+
+    // Список дат платежей подписки от from до to
+    upcomingPaymentDates(s, from, to) {
+      const out = [];
+      if (s.sub_type === 'onetime') {
+        if (s.next_payment) {
+          const d = new Date(s.next_payment + 'T00:00:00');
+          if (d >= from && d <= to) out.push(d);
+        }
+        return out;
+      }
+      const day = s.billing_day ? Math.min(s.billing_day, 28) : null;
+      if (!day) return out;
+      let cursor = new Date(from.getFullYear(), from.getMonth(), day);
+      while (cursor < from) cursor.setMonth(cursor.getMonth() + 1);
+      while (cursor <= to) {
+        out.push(new Date(cursor));
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
+      return out;
     },
 
     get detailRows() {
@@ -186,17 +553,31 @@ function app() {
         { key: 'URL', value: s.url, html: s.url ? `<a href="${s.url}" target="_blank">${s.url}</a>` : null },
         { key: 'Примечания', value: s.notes },
       );
-      if (s.sub_type === 'balance') {
+      if (s.sub_type === 'balance' || s.sub_type === 'balance_daily') {
         const balanceRows = [
           { key: 'Текущий баланс', value: fmt(s.balance) + ' ' + s.currency, featured: true },
         ];
-        if (s.billing_day) {
+        if (s.sub_type === 'balance_daily') {
+          const perDay = (Number(s.price) || 0) / 30;
+          balanceRows.push({ key: 'Списание', value: 'ежедневно' });
+          if (perDay > 0) balanceRows.push({ key: 'Расход в день', value: '≈ ' + fmt(perDay) + ' ' + s.currency });
+        } else if (s.billing_day) {
           balanceRows.push({ key: 'День списания', value: s.billing_day + ' числа' });
         } else {
           balanceRows.push({ key: 'Списание', value: 'вручную (без автосписания)' });
         }
         if (s.min_balance) {
           balanceRows.push({ key: 'Минимальный баланс', value: fmt(s.min_balance) + ' ' + s.currency });
+        }
+        const est = this.lastsEstimate(s);
+        if (est) {
+          const d = est.date;
+          const dateStr = String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear();
+          let human;
+          if (est.totalDays < 14) human = '≈' + Math.round(est.totalDays) + ' дн.';
+          else if (est.months < 1.5) human = '≈' + Math.round(est.totalDays / 7) + ' нед.';
+          else human = '≈' + Math.round(est.months) + ' мес.';
+          balanceRows.push({ key: 'Хватит до', value: `${human} (до ${dateStr})`, featured: true });
         }
         rows.splice(0, 0, ...balanceRows);
       }
@@ -225,6 +606,9 @@ function app() {
         });
         await this.loadTheme();
         await this.loadAll();
+        // если стартовали сразу на вкладке «Система» — подгрузить бэкапы (watch не сработает)
+        if (this.tab === 'system' && this.currentUser?.role === 'admin') this.loadBackups();
+        this.appReady = true;
       } catch {
         window.location.href = '/login';
       }
@@ -237,8 +621,76 @@ function app() {
       } catch {
         this.theme = localStorage.getItem('oops-theme') || 'dark';
       }
+      this.accent = localStorage.getItem('oops-accent') || 'amber';
       localStorage.setItem('oops-theme', this.theme);
       document.documentElement.setAttribute('data-theme', this.theme);
+      this.applyAccent();
+    },
+
+    applyAccent() {
+      const c = this.accentColors.find(a => a.id === this.accent) || this.accentColors[0];
+      const hex = this.theme === 'dark' ? c.dark : c.light;
+      const root = document.documentElement;
+      root.style.setProperty('--accent', hex);
+      root.style.setProperty('--accent-hover', this._shade(hex, this.theme === 'dark' ? 20 : -20));
+      root.style.setProperty('--accent-dim', this._hexA(hex, this.theme === 'dark' ? 0.16 : 0.10));
+      root.style.setProperty('--accent-soft', this._hexA(hex, this.theme === 'dark' ? 0.16 : 0.14));
+      root.style.setProperty('--accent-ink', this.theme === 'dark' ? this._shade(hex, 15) : this._shade(hex, -15));
+
+      // Лёгкая тонировка фона и поверхностей под акцент (как в макете)
+      if (this.theme === 'dark') {
+        const surf = this._mix(hex, '#211C17', 0.04);
+        const surf2 = this._mix(hex, '#2A241D', 0.05);
+        const line = this._mix(hex, '#332B23', 0.05);
+        root.style.setProperty('--bg', this._mix(hex, '#161311', 0.06));
+        root.style.setProperty('--surface', surf);
+        root.style.setProperty('--bg-card', surf);
+        root.style.setProperty('--surface2', surf2);
+        root.style.setProperty('--bg-elev', surf2);
+        root.style.setProperty('--line', line);
+        root.style.setProperty('--border', line);
+      } else {
+        const surf2 = this._mix(hex, '#FBF8F2', 0.05);
+        const line = this._mix(hex, '#E9E3D9', 0.06);
+        root.style.setProperty('--bg', this._mix(hex, '#F4F0E9', 0.06));
+        root.style.setProperty('--surface', '#FFFFFF');
+        root.style.setProperty('--bg-card', '#FFFFFF');
+        root.style.setProperty('--surface2', surf2);
+        root.style.setProperty('--bg-elev', surf2);
+        root.style.setProperty('--line', line);
+        root.style.setProperty('--border', line);
+      }
+    },
+
+    // Смешать hex-цвет с базовым в пропорции t (0..1 доля первого)
+    _mix(hex, base, t) {
+      const a = parseInt(hex.slice(1), 16), b = parseInt(base.slice(1), 16);
+      const ar=(a>>16)&255, ag=(a>>8)&255, ab=a&255;
+      const br=(b>>16)&255, bg=(b>>8)&255, bb=b&255;
+      const r = Math.round(ar*t + br*(1-t));
+      const g = Math.round(ag*t + bg*(1-t));
+      const bl = Math.round(ab*t + bb*(1-t));
+      return '#' + ((1<<24) + (r<<16) + (g<<8) + bl).toString(16).slice(1);
+    },
+
+    _hexA(hex, a) {
+      const n = parseInt(hex.slice(1), 16);
+      return `rgba(${(n>>16)&255}, ${(n>>8)&255}, ${n&255}, ${a})`;
+    },
+    _shade(hex, pct) {
+      const n = parseInt(hex.slice(1), 16);
+      let r = (n>>16)&255, g = (n>>8)&255, b = n&255;
+      const t = pct < 0 ? 0 : 255, p = Math.abs(pct) / 100;
+      r = Math.round((t - r) * p) + r;
+      g = Math.round((t - g) * p) + g;
+      b = Math.round((t - b) * p) + b;
+      return '#' + ((1<<24) + (r<<16) + (g<<8) + b).toString(16).slice(1);
+    },
+
+    setAccent(id) {
+      this.accent = id;
+      localStorage.setItem('oops-accent', id);
+      this.applyAccent();
     },
 
     setSubView(v) {
@@ -255,6 +707,7 @@ function app() {
       this.theme = this.theme === 'dark' ? 'light' : 'dark';
       localStorage.setItem('oops-theme', this.theme);
       document.documentElement.setAttribute('data-theme', this.theme);
+      this.applyAccent();
       try {
         await this.api('/api/system/theme', { method: 'POST', body: JSON.stringify({ theme: this.theme }) });
       } catch {}
@@ -417,27 +870,29 @@ function app() {
 
     selectedCategory() {
       const id = this.subForm?.category_id;
-      if (!id) return null;
-      return this.categories.find(c => String(c.id) === String(id)) || null;
+      if (!id) return {};
+      return this.categories.find(c => String(c.id) === String(id)) || {};
     },
     selectedPayment() {
       const id = this.subForm?.payment_method_id;
-      if (!id) return null;
-      return this.paymentMethods.find(p => String(p.id) === String(id)) || null;
+      if (!id) return {};
+      return this.paymentMethods.find(p => String(p.id) === String(id)) || {};
     },
     pickCategory(id) {
+      if (!this.subForm) return;
       this.subForm.category_id = id ? String(id) : '';
       this.iconDropdown = '';
     },
     pickPayment(id) {
+      if (!this.subForm) return;
       this.subForm.payment_method_id = id ? String(id) : '';
       this.iconDropdown = '';
     },
 
     selectedContractor() {
       const id = this.subForm?.contractor_id;
-      if (!id) return null;
-      return this.contractors.find(c => String(c.id) === String(id)) || null;
+      if (!id) return {};
+      return this.contractors.find(c => String(c.id) === String(id)) || {};
     },
     filteredContractors() {
       const q = (this.contractorSearch || '').trim().toLowerCase();
@@ -473,7 +928,14 @@ function app() {
       } catch {}
     },
 
-    async loadStats() { this.stats = await this.api('/api/subscriptions/stats/dashboard'); },
+    async loadStats() {
+      this.stats = await this.api('/api/subscriptions/stats/dashboard');
+      // дефолты фильтра: последний доступный период/год
+      const hist = this.stats.history || [];
+      if (hist.length && !this.dashPeriod) this.dashPeriod = hist[hist.length - 1].period;
+      const years = [...new Set(hist.map(h => (h.period || '').split('-')[0]))].filter(Boolean).sort();
+      if (years.length && !this.dashYear) this.dashYear = years[years.length - 1];
+    },
     async loadSubscriptions() { this.subscriptions = await this.api('/api/subscriptions/'); },
     async loadOrganizations() { this.organizations = await this.api('/api/organizations/'); },
     async loadContractors() { this.contractors = await this.api('/api/contractors/'); },
@@ -574,7 +1036,22 @@ function app() {
     },
 
     typeLabel(t) {
-      return { recurring: 'Подписка', balance: 'Счёт/Баланс', onetime: 'Разовый платёж' }[t] || t;
+      return {
+        recurring: 'Подписка',
+        balance: 'Баланс (Периодическое списание)',
+        balance_daily: 'Баланс (Ежедневное списание)',
+        onetime: 'Разовый платёж',
+      }[t] || t;
+    },
+
+    // Короткая подпись для бейджа на карточке (чтобы влезала в плашку)
+    typeBadge(t) {
+      return {
+        recurring: 'Подписка',
+        balance: 'Баланс',
+        balance_daily: 'Баланс/день',
+        onetime: 'Разовый',
+      }[t] || t;
     },
 
     cycleLabel(c, f, type) {
@@ -611,6 +1088,7 @@ function app() {
           next_payment: new Date().toISOString().split('T')[0],
           start_date: new Date().toISOString().split('T')[0],
           auto_renew: true, balance: 0, billing_day: 1, min_balance: 0,
+          daily_charge: false, notify_days_left: 10,
           balance_api_url: '', balance_api_path: 'balance',
           balance_api_enabled: false,
           url: '', notes: '', is_active: true,

@@ -223,30 +223,62 @@ def _send_webhook_notification(db: Session, sub: Subscription, message: str, eve
 
 
 def _check_low_balance(db, s):
-    """Уведомление о низком балансе не чаще раза в сутки. Условие (любое из):
-    - задан min_balance и баланс ≤ min_balance (твой порог тревоги)
-    - задана стоимость и баланс < price (не хватит на следующее списание)
+    """Уведомление о низком балансе не чаще раза в сутки.
+
+    Общее для всех счетов:
+      - если задан min_balance и баланс ≤ min_balance — тревога (работает всегда)
+
+    Ежедневное списание (sub_type='balance_daily'):
+      - дополнительно, если задана стоимость (за месяц): дневной расход = price/дней,
+        предупреждаем, когда баланса хватает ≤ notify_days_left дней
+      - если стоимость 0 — ориентируемся только на min_balance (для непредсказуемого расхода)
+
+    Периодическое списание (sub_type='balance'):
+      - дополнительно: баланс < price (не хватит на следующее списание)
     """
+    import calendar as _cal
     today = date.today()
     reasons = []
+
+    def _n(x):
+        try:
+            return f"{x:.0f}" if x == int(x) else f"{x:.2f}"
+        except Exception:
+            return str(x)
 
     has_min = s.min_balance and s.min_balance > 0
     has_price = s.price and s.price > 0
 
+    # порог тревоги по минимальному балансу — общий для всех
     if has_min and s.balance <= s.min_balance:
-        reasons.append(f"баланс {s.balance} ниже минимума {s.min_balance}")
-    if has_price and s.balance < s.price:
-        reasons.append(f"баланса {s.balance} не хватит на следующее списание {s.price}")
+        reasons.append(f"баланс {_n(s.balance)} ниже минимума {_n(s.min_balance)} {s.currency}")
+
+    if (getattr(s, "sub_type", "") == "balance_daily") and has_price:
+        # ежедневное списание: оцениваем, на сколько дней хватит
+        days_in_month = _cal.monthrange(today.year, today.month)[1]
+        per_day = s.price / days_in_month
+        if per_day > 0:
+            days_left = int(s.balance / per_day)
+            warn_days = getattr(s, "notify_days_left", 10) or 10
+            if days_left <= warn_days:
+                until = today + timedelta(days=days_left)
+                reasons.append(
+                    f"баланса {_n(s.balance)} {s.currency} хватит на ~{days_left} дн. "
+                    f"(до {until.strftime('%d.%m.%Y')})"
+                )
+    else:
+        # помесячное списание целой суммой — прежняя логика
+        if has_price and s.balance < s.price:
+            reasons.append(f"баланса {_n(s.balance)} не хватит на следующее списание {_n(s.price)} {s.currency}")
 
     if reasons:
         if s.last_low_balance_notify == today:
             return  # уже слали сегодня
-        msg = f"⚠️ «{s.name}»: " + "; ".join(reasons) + f" {s.currency}"
+        msg = f"⚠️ «{s.name}»: " + "; ".join(reasons)
         _send_webhook_notification(db, s, msg, "balance_low")
         s.last_low_balance_notify = today
         db.commit()
     else:
-        # баланс в норме — сбрасываем, чтобы при следующем падении уведомить сразу
         if s.last_low_balance_notify is not None:
             s.last_low_balance_notify = None
             db.commit()
@@ -260,7 +292,7 @@ def update_balance_subscriptions():
     try:
         today = date.today()
         subs = db.query(Subscription).filter(
-            Subscription.sub_type == "balance",
+            Subscription.sub_type.in_(["balance", "balance_daily"]),
             Subscription.is_active == True
         ).all()
         for s in subs:
@@ -298,7 +330,7 @@ def fetch_balances_from_api():
     db = SessionLocal()
     try:
         subs = db.query(Subscription).filter(
-            Subscription.sub_type == "balance",
+            Subscription.sub_type.in_(["balance", "balance_daily"]),
             Subscription.is_active == True,
             Subscription.balance_api_url != ""
         ).all()
@@ -346,41 +378,90 @@ def send_payment_reminders():
             except Exception:
                 return [3]
 
-        def next_payment_for(s):
-            """Возвращает дату следующего платежа подписки."""
-            if s.sub_type == "onetime":
-                return s.next_payment
-            # recurring всегда по billing_day; balance — только если задан billing_day (есть автосписание)
-            if s.sub_type in ("recurring", "balance") and s.billing_day:
-                day = min(s.billing_day, 28)
-                if today.day <= day:
-                    try:
-                        return today.replace(day=day)
-                    except ValueError:
-                        return None
-                if today.month == 12:
-                    return today.replace(year=today.year + 1, month=1, day=day)
-                return today.replace(month=today.month + 1, day=day)
-            return None
-
-        def last_due_for(s):
-            """Дата последнего НАСТУПИВШЕГО платежа (сегодня или в прошлом), или None."""
-            if s.sub_type == "onetime":
-                return s.next_payment if (s.next_payment and s.next_payment <= today) else None
-            if s.sub_type in ("recurring", "balance") and s.billing_day:
-                day = min(s.billing_day, 28)
-                # платёж этого месяца
+        def _add_period(d, cycle, freq):
+            """Прибавить один период (cycle × freq) к дате d."""
+            freq = max(1, int(freq or 1))
+            if cycle == "daily":
+                return d + timedelta(days=freq)
+            if cycle == "weekly":
+                return d + timedelta(weeks=freq)
+            if cycle == "yearly":
                 try:
-                    this_month = today.replace(day=day)
+                    return d.replace(year=d.year + freq)
+                except ValueError:
+                    return d.replace(year=d.year + freq, day=28)
+            # monthly (по умолчанию)
+            m = d.month - 1 + freq
+            y = d.year + m // 12
+            m = m % 12 + 1
+            from calendar import monthrange
+            day = min(d.day, monthrange(y, m)[1])
+            return date(y, m, day)
+
+        def _cycle_anchor(s):
+            """Опорная дата для расчёта цикла: next_payment, иначе start_date,
+            иначе billing_day текущего месяца."""
+            if s.next_payment:
+                return s.next_payment
+            if s.start_date:
+                return s.start_date
+            if s.billing_day:
+                day = min(s.billing_day, 28)
+                try:
+                    return today.replace(day=day)
                 except ValueError:
                     return None
-                if this_month <= today:
-                    return this_month
-                # иначе — платёж прошлого месяца
-                if today.month == 1:
-                    return today.replace(year=today.year - 1, month=12, day=day)
-                return today.replace(month=today.month - 1, day=day)
             return None
+
+        def next_payment_for(s):
+            """Дата следующего платежа с учётом периодичности (cycle/frequency)."""
+            if s.sub_type == "onetime":
+                return s.next_payment
+            if s.sub_type not in ("recurring", "balance"):
+                return None
+            cycle = (s.cycle or "monthly")
+            freq = s.frequency or 1
+            # для balance без дня списания платежей нет
+            if s.sub_type == "balance" and not s.billing_day:
+                return None
+            anchor = _cycle_anchor(s)
+            if not anchor:
+                return None
+            # перематываем от опорной даты вперёд до первой даты >= today
+            d = anchor
+            guard = 0
+            while d < today and guard < 1000:
+                d = _add_period(d, cycle, freq)
+                guard += 1
+            return d
+
+        def last_due_for(s):
+            """Дата последнего наступившего платежа (≤ today), или None."""
+            if s.sub_type == "onetime":
+                return s.next_payment if (s.next_payment and s.next_payment <= today) else None
+            if s.sub_type not in ("recurring", "balance"):
+                return None
+            if s.sub_type == "balance" and not s.billing_day:
+                return None
+            cycle = (s.cycle or "monthly")
+            freq = s.frequency or 1
+            anchor = _cycle_anchor(s)
+            if not anchor:
+                return None
+            nxt = next_payment_for(s)
+            if not nxt:
+                return None
+            if nxt == today:
+                return today
+            # шаг назад от следующего платежа
+            prev = anchor
+            d = anchor
+            guard = 0
+            while d < nxt and guard < 1000:
+                prev = d
+                d = _add_period(d, cycle, freq)
+                guard += 1
+            return prev if prev <= today else None
 
         # Все активные подписки с включёнными уведомлениями
         subs = db.query(Subscription).filter(
@@ -403,7 +484,19 @@ def send_payment_reminders():
                 already_paid = s.paid_until and s.paid_until >= next_pay
                 diff = (next_pay - today).days  # >0 до платежа, 0 в день, <0 просрочено
 
-                if s.auto_renew:
+                if s.sub_type == "balance":
+                    # Периодический счёт: напоминаем заранее проверить/пополнить баланс
+                    if 0 <= diff <= start_before:
+                        if diff > 1:
+                            msg = f"Через {diff} дн. списание со счёта «{s.name}» — {next_pay.isoformat()} ({fmt_amount(s)}). Баланс: {s.balance:.0f} {s.currency}"
+                        elif diff == 1:
+                            msg = f"Завтра списание со счёта «{s.name}» ({fmt_amount(s)}). Баланс: {s.balance:.0f} {s.currency}"
+                        else:
+                            msg = f"Сегодня списание со счёта «{s.name}» ({fmt_amount(s)}). Баланс: {s.balance:.0f} {s.currency}"
+                        _send_webhook_notification(db, s, msg, "payment_due")
+                        s.last_payment_notify_for = today
+                        db.commit()
+                elif s.auto_renew:
                     # Автопродление: только предупреждаем заранее (в окне до платежа),
                     # без напоминаний о просрочке — платёж спишется сам.
                     if not already_paid and 0 <= diff <= start_before:
@@ -438,6 +531,39 @@ def send_payment_reminders():
                 if 0 <= cdiff <= start_before:
                     msg = f"Подписка «{s.name}» будет отменена {s.cancellation_date.isoformat()}"
                     _send_webhook_notification(db, s, msg, "cancellation")
+    finally:
+        db.close()
+
+
+def record_monthly_snapshot():
+    """1-го числа месяца: записывает суммарный месячный расход в историю (для графика)."""
+    from .models import Subscription, MonthlySnapshot
+    db = SessionLocal()
+    try:
+        subs = db.query(Subscription).filter(Subscription.is_active == True).all()
+        total = 0.0
+        for s in subs:
+            if s.sub_type == "onetime":
+                continue
+            freq = max(s.frequency or 1, 1)
+            if s.cycle == "monthly":
+                total += (s.price or 0) / freq
+            elif s.cycle == "yearly":
+                total += (s.price or 0) / (12 * freq)
+            elif s.cycle == "weekly":
+                total += (s.price or 0) * (4.345 / freq)
+            elif s.cycle == "daily":
+                total += (s.price or 0) * (30 / freq)
+        period = date.today().strftime("%Y-%m")
+        snap = db.query(MonthlySnapshot).filter(MonthlySnapshot.period == period).first()
+        if snap:
+            snap.total_monthly = round(total, 2)
+        else:
+            db.add(MonthlySnapshot(period=period, total_monthly=round(total, 2)))
+        db.commit()
+        log.info(f"Monthly snapshot {period}: {total:.0f}")
+    except Exception as e:
+        log.warning(f"record_monthly_snapshot: {e}")
     finally:
         db.close()
 
@@ -479,6 +605,10 @@ def start_scheduler():
     # Так уведомление уйдёт даже если в 9:00 контейнер был выключен/перезапускался.
     sched.add_job(send_payment_reminders, "cron", minute=0, id="payment_reminders")
     sched.add_job(auto_backup, "cron", day_of_week="sun", hour=3, minute=0, id="auto_backup")
+    sched.add_job(record_monthly_snapshot, "cron", day=1, hour=1, minute=0, id="monthly_snapshot")
+    # записать снимок текущего месяца при старте (чтобы история начала копиться сразу)
+    sched.add_job(record_monthly_snapshot, "date",
+                  run_date=datetime.now() + timedelta(seconds=45), id="snapshot_startup")
     # Разовый прогон вскоре после старта — догнать пропущенное за время простоя
     sched.add_job(send_payment_reminders, "date",
                   run_date=datetime.now() + timedelta(seconds=30), id="reminders_startup")

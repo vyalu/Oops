@@ -1,0 +1,24 @@
+# Боевые данные — НЕ копировать в образ (там БД с паролями, секретный ключ, бэкапы)
+data/
+*.db
+*.sqlite
+secret.key
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+venv/
+.venv/
+
+# Системное / VCS
+.git/
+.gitignore
+.DS_Store
+*.log
+
+# Инфраструктура (не нужна внутри образа приложения)
+docker-compose.yml
+Caddyfile
+*.tar.gz

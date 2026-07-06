@@ -109,23 +109,45 @@ def mark_paid(item_id: int, db: Session = Depends(get_db), _: User = Depends(req
     today = date.today()
 
     if item.sub_type == "onetime":
-        # разовый — помечаем оплаченным до даты платежа (или сегодня)
         item.paid_until = item.next_payment or today
     else:
-        # recurring/balance с billing_day — определяем дату ближайшего платежа
-        if item.billing_day:
-            day = min(item.billing_day, 28)
-            if today.day <= day:
+        # recurring/balance — отмечаем оплаченным до даты ближайшего платежа,
+        # рассчитанной с учётом периодичности (cycle/frequency)
+        from calendar import monthrange
+
+        def _add_period(d, cycle, freq):
+            freq = max(1, int(freq or 1))
+            if cycle == "daily":
+                return d + timedelta(days=freq)
+            if cycle == "weekly":
+                return d + timedelta(weeks=freq)
+            if cycle == "yearly":
                 try:
-                    cur = today.replace(day=day)
+                    return d.replace(year=d.year + freq)
                 except ValueError:
-                    cur = today
-            else:
-                if today.month == 12:
-                    cur = today.replace(year=today.year + 1, month=1, day=day)
-                else:
-                    cur = today.replace(month=today.month + 1, day=day)
-            item.paid_until = cur
+                    return d.replace(year=d.year + freq, day=28)
+            m = d.month - 1 + freq
+            y = d.year + m // 12
+            m = m % 12 + 1
+            dd = min(d.day, monthrange(y, m)[1])
+            return date(y, m, dd)
+
+        cycle = item.cycle or "monthly"
+        freq = item.frequency or 1
+        anchor = item.next_payment or item.start_date
+        if not anchor and item.billing_day:
+            day = min(item.billing_day, 28)
+            try:
+                anchor = today.replace(day=day)
+            except ValueError:
+                anchor = today
+        if anchor:
+            d = anchor
+            guard = 0
+            while d < today and guard < 1000:
+                d = _add_period(d, cycle, freq)
+                guard += 1
+            item.paid_until = d
         else:
             item.paid_until = today
 
@@ -307,27 +329,60 @@ def stats(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
         total_monthly += month_cost
     total_yearly = total_monthly * 12
 
+    from calendar import monthrange
+
+    def _add_period(d, cycle, freq):
+        freq = max(1, int(freq or 1))
+        if cycle == "daily":
+            return d + timedelta(days=freq)
+        if cycle == "weekly":
+            return d + timedelta(weeks=freq)
+        if cycle == "yearly":
+            try:
+                return d.replace(year=d.year + freq)
+            except ValueError:
+                return d.replace(year=d.year + freq, day=28)
+        m = d.month - 1 + freq
+        y = d.year + m // 12
+        m = m % 12 + 1
+        day = min(d.day, monthrange(y, m)[1])
+        return date(y, m, day)
+
     def get_next_payment_date(s):
-        """Возвращает дату следующего платежа: для onetime — next_payment, для recurring — из billing_day"""
+        """Дата следующего платежа с учётом периодичности."""
         if s.sub_type == "onetime":
             return s.next_payment
-        if s.sub_type == "recurring" and s.billing_day:
+        if s.sub_type != "recurring":
+            return s.next_payment
+        cycle = s.cycle or "monthly"
+        freq = s.frequency or 1
+        # опорная дата
+        anchor = s.next_payment or s.start_date
+        if not anchor and s.billing_day:
             day = min(s.billing_day, 28)
-            if today.day <= day:
-                return today.replace(day=day)
-            else:
-                if today.month == 12:
-                    return today.replace(year=today.year + 1, month=1, day=day)
-                return today.replace(month=today.month + 1, day=day)
-        return s.next_payment
+            try:
+                anchor = today.replace(day=day)
+            except ValueError:
+                anchor = None
+        if not anchor:
+            return None
+        d = anchor
+        guard = 0
+        while d < today and guard < 1000:
+            d = _add_period(d, cycle, freq)
+            guard += 1
+        return d
 
     upcoming = []
     overdue = []
     for s in subs:
-        if s.sub_type == "balance":
+        if s.sub_type in ("balance", "balance_daily"):
             continue
         next_pay = get_next_payment_date(s)
         if not next_pay:
+            continue
+        # уже оплачено до этой даты — не показываем
+        if s.paid_until and s.paid_until >= next_pay:
             continue
         item = {
             "id": s.id,
@@ -377,12 +432,23 @@ def stats(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
             month_cost = 0
         by_org[org_name] = by_org.get(org_name, 0) + month_cost
 
+    # Сумма к оплате в ближайшие 30 дней
+    upcoming_30d_total = sum(x["price"] or 0 for x in upcoming)
+
+    # История расходов по месяцам (для графика динамики)
+    from ..models import MonthlySnapshot
+    snapshots = db.query(MonthlySnapshot).order_by(MonthlySnapshot.period).all()
+    history = [{"period": s.period, "total": round(s.total_monthly, 2)} for s in snapshots[-8:]]
+
     return {
         "total_active": len([s for s in subs if s.sub_type != "onetime"]),
         "total_monthly": round(total_monthly, 2),
         "total_yearly": round(total_yearly, 2),
+        "upcoming_30d_total": round(upcoming_30d_total, 2),
+        "upcoming_count": len(upcoming),
         "upcoming": upcoming[:10],
         "overdue": overdue,
         "low_balance": low_balance,
         "by_organization": [{"name": k, "monthly": round(v, 2)} for k, v in sorted(by_org.items(), key=lambda x: -x[1])],
+        "history": history,
     }

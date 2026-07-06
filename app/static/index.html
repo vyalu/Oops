@@ -7,16 +7,40 @@
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-<noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"></noscript>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
 <link rel="stylesheet" href="/static/styles.css?v=__BUILD__">
 <script>
-  document.documentElement.setAttribute('data-theme', localStorage.getItem('oops-theme') || 'dark');
+  // Тема + акцент СИНХРОННО до отрисовки — убирает мелькание (FOUC)
+  (function () {
+    try {
+      var root = document.documentElement;
+      var theme = localStorage.getItem('oops-theme') || 'dark';
+      root.setAttribute('data-theme', theme);
+      var ACC = {amber:{light:'#D97706',dark:'#E8951F'},terracotta:{light:'#C2612F',dark:'#DB8155'},emerald:{light:'#0F766E',dark:'#2DD4BF'},indigo:{light:'#4F46E5',dark:'#818CF8'},rose:{light:'#BE185D',dark:'#F472B6'},slate:{light:'#475569',dark:'#94A3B8'},ocean:{light:'#0369A1',dark:'#38BDF8'},olive:{light:'#4D7C0F',dark:'#A3E635'}};
+      var id = localStorage.getItem('oops-accent') || 'amber';
+      var c = ACC[id] || ACC.amber;
+      var hex = theme === 'dark' ? c.dark : c.light;
+      function mix(a,b,t){a=parseInt(a.slice(1),16);b=parseInt(b.slice(1),16);var ar=(a>>16)&255,ag=(a>>8)&255,ab=a&255,br=(b>>16)&255,bg=(b>>8)&255,bb=b&255;return '#'+((1<<24)+((Math.round(ar*t+br*(1-t)))<<16)+((Math.round(ag*t+bg*(1-t)))<<8)+(Math.round(ab*t+bb*(1-t)))).toString(16).slice(1);}
+      var s = root.style;
+      s.setProperty('--accent', hex);
+      if (theme === 'dark') { var d=mix(hex,'#211C17',0.04); s.setProperty('--bg', mix(hex,'#161311',0.06)); s.setProperty('--surface', d); s.setProperty('--bg-card', d); }
+      else { s.setProperty('--bg', mix(hex,'#F4F0E9',0.06)); s.setProperty('--surface', '#FFFFFF'); s.setProperty('--bg-card', '#FFFFFF'); }
+    } catch (e) {}
+  })();
 </script>
 <script defer src="/static/vendor/alpine-collapse.min.js?v=__BUILD__"></script>
 <script defer src="/static/vendor/alpine.min.js?v=__BUILD__"></script>
 </head>
 <body x-data="app()" x-init="init()" x-cloak>
+
+<!-- Экран загрузки (пока грузятся данные) -->
+<div class="app-loader" x-show="!appReady">
+  <div class="app-loader-ring">
+    <div class="app-loader-mark">O</div>
+  </div>
+</div>
+
 
 <!-- Предупреждение: дефолтный пароль admin/admin -->
 <div x-show="currentUser?.must_change_password" class="pw-warning-banner">
@@ -24,33 +48,71 @@
   <button class="btn btn-sm" @click="openChangePassword()">Сменить пароль</button>
 </div>
 
-<header class="app-header">
+<header class="app-header" x-show="appReady">
   <div class="app-header-inner">
     <div class="brand">
       <div class="brand-mark">O</div>
-      <span>Oops!</span>
+      <div class="brand-text">
+        <span class="brand-name">Oops!</span>
+        <span class="brand-sub">учёт подписок</span>
+      </div>
     </div>
+
+    <!-- Десктоп-навигация в той же строке -->
+    <nav class="app-nav">
+      <template x-for="t in mainTabs" :key="t.id">
+        <button :class="{active: tab === t.id}" @click="tab = t.id; navMenu = ''">
+          <span x-text="t.label"></span>
+        </button>
+      </template>
+
+      <div class="nav-group" @click.outside="if (navMenu === 'ref') navMenu = ''">
+        <button :class="{active: isRefActive()}" @click="navMenu = (navMenu === 'ref' ? '' : 'ref')">
+          <span>Справочники</span>
+          <span class="nav-caret" :class="{open: navMenu === 'ref'}">▾</span>
+        </button>
+        <div class="nav-dropdown" x-show="navMenu === 'ref'" x-transition.opacity x-cloak>
+          <template x-for="t in refTabs" :key="t.id">
+            <button class="nav-dropdown-item" :class="{active: tab === t.id}" @click="tab = t.id; navMenu = ''">
+              <span x-text="t.label"></span>
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <div class="nav-group" x-show="adminTabs.length" @click.outside="if (navMenu === 'admin') navMenu = ''">
+        <button :class="{active: isAdminActive()}" @click="navMenu = (navMenu === 'admin' ? '' : 'admin')">
+          <span>Администрирование</span>
+          <span class="nav-caret" :class="{open: navMenu === 'admin'}">▾</span>
+        </button>
+        <div class="nav-dropdown" x-show="navMenu === 'admin'" x-transition.opacity x-cloak>
+          <template x-for="t in adminTabs" :key="t.id">
+            <button class="nav-dropdown-item" :class="{active: tab === t.id}" @click="tab = t.id; navMenu = ''">
+              <span x-text="t.label"></span>
+            </button>
+          </template>
+        </div>
+      </div>
+    </nav>
+
     <div class="user-strip">
       <button class="icon-btn" @click="toggleTheme()" :title="theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'">
         <span x-text="theme === 'dark' ? '☾' : '☀'"></span>
       </button>
-      <span class="user-name" x-text="currentUser?.full_name || currentUser?.username"></span>
-      <span class="user-role" :class="currentUser?.role" x-text="roleLabel(currentUser?.role)"></span>
+      <div class="user-block">
+        <span class="user-avatar" x-text="initial(currentUser?.full_name || currentUser?.username)"></span>
+        <div class="user-info">
+          <span class="user-name" x-text="currentUser?.full_name || currentUser?.username"></span>
+          <span class="user-role-line">Роль: <span x-text="roleLabel(currentUser?.role)"></span></span>
+        </div>
+      </div>
       <button class="btn-logout" @click="logout()">Выход</button>
-      <!-- Гамбургер (только на мобильных) -->
       <button class="nav-burger" @click="mobileMenuOpen = !mobileMenuOpen" :class="{open: mobileMenuOpen}" aria-label="Меню">
         <span></span><span></span><span></span>
       </button>
     </div>
   </div>
-  <!-- Десктоп-навигация -->
-  <nav class="app-nav">
-    <template x-for="t in tabs" :key="t.id">
-      <button :class="{active: tab === t.id}" @click="tab = t.id">
-        <span x-text="t.label"></span>
-      </button>
-    </template>
-  </nav>
+
   <!-- Мобильное выпадающее меню -->
   <div class="mobile-menu" x-show="mobileMenuOpen" @click.self="mobileMenuOpen = false" style="display: none;">
     <div class="mobile-menu-panel">
@@ -65,32 +127,118 @@
   </div>
 </header>
 
-<main>
+<main x-show="appReady">
 
   <!-- ===== СВОДКА ===== -->
   <div x-show="tab === 'dashboard'">
     <div class="page-header">
       <div class="page-header-left">
         <h1>Сводка</h1>
-        <div class="meta">Аналитика расходов по организациям</div>
+        <div class="meta">Аналитика расходов</div>
+      </div>
+      <div class="dash-filter" x-show="dashHistory.length">
+        <div class="seg-toggle">
+          <button :class="{active: dashMode === 'month'}" @click="dashMode = 'month'">Месяц</button>
+          <button :class="{active: dashMode === 'year'}" @click="dashMode = 'year'">Год</button>
+        </div>
+        <select class="dash-period" x-model="dashPeriod" x-show="dashMode === 'month'">
+          <template x-for="p in dashHistory" :key="p.period">
+            <option :value="p.period" x-text="periodLabel(p.period)"></option>
+          </template>
+        </select>
+        <select class="dash-period" x-model="dashYear" x-show="dashMode === 'year'">
+          <template x-for="y in dashYears" :key="y">
+            <option :value="y" x-text="y"></option>
+          </template>
+        </select>
       </div>
     </div>
 
     <div class="stat-grid">
       <div class="stat">
-        <div class="stat-label">Активных подписок</div>
-        <div class="stat-value tabular" x-text="stats.total_active || 0"></div>
+        <div class="stat-head">
+          <span class="stat-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg>
+          </span>
+          <span class="stat-label">Активных подписок</span>
+        </div>
+        <div class="stat-value" x-text="stats.total_active || 0"></div>
+        <div class="stat-foot">все активны</div>
       </div>
       <div class="stat">
-        <div class="stat-label">Ежемесячно</div>
-        <div class="stat-value tabular">
-          <span x-text="fmt(stats.total_monthly)"></span><span class="currency">₽</span>
+        <div class="stat-head">
+          <span class="stat-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          </span>
+          <span class="stat-label">Ежемесячно</span>
+        </div>
+        <div class="stat-value">
+          <template x-if="dashMonthly !== null"><span><span x-text="fmt(dashMonthly)"></span><span class="currency">₽</span></span></template>
+          <template x-if="dashMonthly === null"><span class="stat-nodata">нет данных</span></template>
+        </div>
+        <div class="stat-foot" x-text="dashMode === 'month' ? periodLabel(dashPeriod) : ('в среднем за ' + dashYear)"></div>
+      </div>
+      <div class="stat">
+        <div class="stat-head">
+          <span class="stat-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-5"/></svg>
+          </span>
+          <span class="stat-label">За год</span>
+        </div>
+        <div class="stat-value">
+          <template x-if="dashYearly !== null"><span><span x-text="fmt(dashYearly)"></span><span class="currency">₽</span></span></template>
+          <template x-if="dashYearly === null"><span class="stat-nodata">нет данных</span></template>
+        </div>
+        <div class="stat-foot" x-text="dashYearMonths + ' ' + monthWord(dashYearMonths) + ' в истории'"></div>
+      </div>
+      <div class="stat">
+        <div class="stat-head">
+          <span class="stat-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+          </span>
+          <span class="stat-label">К оплате за 30 дней</span>
+        </div>
+        <div class="stat-value">
+          <span x-text="fmt(stats.upcoming_30d_total)"></span><span class="currency">₽</span>
+        </div>
+        <div class="stat-foot" x-text="(stats.upcoming_count || 0) + ' ' + paymentWord(stats.upcoming_count || 0)"></div>
+      </div>
+    </div>
+
+    <div class="dash-two-col" style="margin-bottom:24px">
+      <div class="dash-panel">
+        <div class="dash-panel-title">Динамика расходов</div>
+        <div class="dash-panel-sub">Ежемесячно, ₽ · история</div>
+        <template x-if="historyPoints.length >= 2">
+          <svg class="trend-svg" :viewBox="'0 0 ' + trendW + ' ' + trendH" preserveAspectRatio="none" x-html="trendSvg"></svg>
+        </template>
+        <template x-if="historyPoints.length < 2">
+          <div class="chart-empty">
+            <div x-text="'Текущий расход: ' + fmt(stats.total_monthly) + ' ₽/мес'"></div>
+            <div class="chart-empty-sub">История копится — график появится в следующих месяцах.</div>
+          </div>
+        </template>
+        <div class="trend-labels" x-show="historyPoints.length >= 2">
+          <template x-for="(p, i) in historyPoints" :key="i">
+            <span x-text="p.label"></span>
+          </template>
         </div>
       </div>
-      <div class="stat">
-        <div class="stat-label">В год</div>
-        <div class="stat-value tabular">
-          <span x-text="fmt(stats.total_yearly)"></span><span class="currency">₽</span>
+
+      <div class="dash-panel" x-show="orgShares.length">
+        <div class="dash-panel-title">Доли по организациям</div>
+        <div class="dash-panel-sub">₽ / месяц</div>
+        <div class="donut-row">
+          <svg class="donut-svg" viewBox="0 0 180 180" x-html="donutSvg"></svg>
+          <div class="donut-legend">
+            <template x-for="(sh, i) in orgShares" :key="i">
+              <div class="donut-legend-row">
+                <span class="donut-dot" :style="'background:' + donutColor(i)"></span>
+                <span class="donut-name" x-text="sh.name"></span>
+                <span class="donut-pct" x-text="sh.pct + '%'"></span>
+              </div>
+            </template>
+          </div>
         </div>
       </div>
     </div>
@@ -143,50 +291,55 @@
       </div>
     </div>
 
-    <div class="section">
-      <div class="section-header">
-        <h3>Предстоящие платежи</h3>
-        <span class="count">ближайшие 30 дней</span>
-      </div>
-      <div class="grid-2col" x-show="stats.upcoming?.length">
-        <template x-for="s in stats.upcoming" :key="s.id">
-          <div class="list-row card-row" @click="openSubDetails(s.id)">
-            <div class="dash-logo" x-show="logoSrc(s.logo_url)">
-              <img :src="logoSrc(s.logo_url)" alt="" @error="$event.target.parentElement.style.display='none'">
+    <div class="dash-two-col">
+      <div class="dash-panel">
+        <div class="dash-panel-head">
+          <div class="dash-panel-title">Предстоящие платежи</div>
+          <span class="pill" x-text="'ближайшие 30 дней'"></span>
+        </div>
+        <div class="pay-list" x-show="stats.upcoming?.length">
+          <template x-for="s in stats.upcoming" :key="s.id">
+            <div class="pay-row" @click="openSubDetails(s.id)">
+              <template x-if="logoSrc(s.logo_url)">
+                <span class="pay-logo"><img :src="logoSrc(s.logo_url)" alt=""></span>
+              </template>
+              <template x-if="!logoSrc(s.logo_url)">
+                <span class="pay-avatar" :style="'background:' + avatarBg(s.name) + ';color:' + avatarFg(s.name)" x-text="initial(s.name)"></span>
+              </template>
+              <div class="pay-main">
+                <div class="pay-name" x-text="s.name"></div>
+                <div class="pay-org" x-text="s.organization || '—'"></div>
+              </div>
+              <div class="pay-right">
+                <div class="pay-amount"><span x-text="fmt(s.price)"></span> <span class="pay-cur" x-text="s.currency"></span></div>
+                <div class="pay-date" x-text="formatDayMonth(s.next_payment)"></div>
+              </div>
             </div>
-            <div class="list-row-main">
-              <div class="list-row-name" x-text="s.name"></div>
-              <div class="list-row-meta" x-text="s.organization || '—'"></div>
-            </div>
-            <div class="list-row-right">
-              <div class="list-row-value tabular" x-text="fmt(s.price) + ' ' + s.currency"></div>
-              <div class="list-row-sub" x-text="s.next_payment"></div>
-            </div>
-          </div>
-        </template>
+          </template>
+        </div>
+        <div x-show="!stats.upcoming?.length" class="chart-empty">
+          <div style="font-size:15px">Нет предстоящих платежей</div>
+        </div>
       </div>
-      <div x-show="!stats.upcoming?.length" class="empty">
-        <div class="empty-icon">∅</div>
-        <div class="empty-msg">Нет предстоящих платежей</div>
-      </div>
-    </div>
 
-    <div class="section" x-show="stats.by_organization?.length">
-      <div class="section-header">
-        <h3>Расходы по организациям</h3>
-        <span class="count">₽ / месяц</span>
-      </div>
-      <div class="grid-2col">
-        <template x-for="o in stats.by_organization" :key="o.name">
-          <div class="list-row card-row" style="cursor:default">
-            <div class="list-row-main">
-              <div class="list-row-name" x-text="o.name"></div>
+      <div class="dash-panel" x-show="stats.by_organization?.length">
+        <div class="dash-panel-head">
+          <div class="dash-panel-title">Расходы по организациям</div>
+          <span class="pill">₽ / месяц</span>
+        </div>
+        <div class="orgbar-list">
+          <template x-for="(o, i) in stats.by_organization" :key="o.name">
+            <div class="orgbar">
+              <div class="orgbar-head">
+                <span class="orgbar-name" x-text="o.name"></span>
+                <span class="orgbar-value"><span x-text="fmt(o.monthly)"></span> ₽</span>
+              </div>
+              <div class="orgbar-track">
+                <div class="orgbar-fill" :style="'width:' + orgBarPct(o.monthly) + '%;background:' + donutColor(i)"></div>
+              </div>
             </div>
-            <div class="list-row-right">
-              <div class="list-row-value tabular" x-text="fmt(o.monthly) + ' ₽'"></div>
-            </div>
-          </div>
-        </template>
+          </template>
+        </div>
       </div>
     </div>
   </div>
@@ -223,7 +376,8 @@
             <select x-model="filterType">
               <option value="">Все типы</option>
               <option value="recurring">Подписка</option>
-              <option value="balance">Счёт/Баланс</option>
+              <option value="balance">Баланс (Периодическое)</option>
+              <option value="balance_daily">Баланс (Ежедневное)</option>
               <option value="onetime">Разовый платёж</option>
             </select>
           </div>
@@ -257,12 +411,12 @@
                 <div class="sub-card-org" x-text="s.contractor?.name || s.organization?.name || '— без контрагента —'"></div>
               </div>
             </div>
-            <span class="sub-card-tag head-tag" :class="s.sub_type" x-text="typeLabel(s.sub_type)"></span>
+            <span class="sub-card-tag head-tag" :class="s.sub_type" x-text="typeBadge(s.sub_type)"></span>
           </div>
           <div class="sub-card-note" x-show="s.notes" x-text="s.notes"></div>
-          <span class="sub-card-tag list-tag" :class="s.sub_type" x-text="typeLabel(s.sub_type)"></span>
+          <span class="sub-card-tag list-tag" :class="s.sub_type" x-text="typeBadge(s.sub_type)"></span>
           <div class="sub-card-foot">
-            <div class="foot-price-block" x-show="s.sub_type !== 'balance'">
+            <div class="foot-price-block" x-show="s.sub_type !== 'balance' && s.sub_type !== 'balance_daily'">
               <div class="sub-card-price tabular">
                 <span x-text="fmt(s.price)"></span><span class="currency" x-text="s.currency"></span>
               </div>
@@ -270,7 +424,7 @@
             </div>
             <div class="sub-card-info">
               <div class="balance-info">
-                <div class="balance-info-row" x-show="s.sub_type === 'balance'">
+                <div class="balance-info-row" x-show="s.sub_type === 'balance' || s.sub_type === 'balance_daily'">
                   <span class="balance-info-label">Баланс</span>
                   <span class="balance-amt"><span x-text="fmt(s.balance)"></span><span class="currency" x-text="s.currency"></span></span>
                 </div>
@@ -315,7 +469,7 @@
                 <span class="expand-key">Дата оплаты</span>
                 <span class="expand-val" x-text="formatDate(s.next_payment)"></span>
               </div>
-              <div class="expand-item" x-show="s.sub_type === 'balance'">
+              <div class="expand-item" x-show="s.sub_type === 'balance' || s.sub_type === 'balance_daily'">
                 <span class="expand-key">Баланс</span>
                 <span class="expand-val" x-text="fmt(s.balance) + ' ' + s.currency"></span>
               </div>
@@ -341,6 +495,50 @@
     <div x-show="!filteredSubs.length" class="empty">
       <div class="empty-icon">∅</div>
       <div class="empty-msg">Подписок пока нет</div>
+    </div>
+  </div>
+
+  <!-- ===== КАЛЕНДАРЬ ===== -->
+  <div x-show="tab === 'calendar'">
+    <div class="page-header">
+      <div>
+        <h1>Календарь платежей</h1>
+        <div class="meta">Платежи за месяц: <span x-text="fmt(calMonthTotal) + ' ₽'"></span></div>
+      </div>
+      <div class="cal-nav">
+        <button class="cal-arrow" @click="calPrev()" title="Предыдущий месяц">←</button>
+        <button class="cal-month-btn" @click="calToday()" title="К текущему месяцу">
+          <span x-text="calLabel"></span>
+        </button>
+        <button class="cal-arrow" @click="calNext()" title="Следующий месяц">→</button>
+      </div>
+    </div>
+
+    <div class="cal-grid">
+      <div class="cal-dow">Пн</div>
+      <div class="cal-dow">Вт</div>
+      <div class="cal-dow">Ср</div>
+      <div class="cal-dow">Чт</div>
+      <div class="cal-dow">Пт</div>
+      <div class="cal-dow">Сб</div>
+      <div class="cal-dow">Вс</div>
+
+      <template x-for="cell in calendarGrid" :key="cell.key">
+        <div class="cal-cell" :class="{ 'out': !cell.inMonth, 'today': cell.isToday, 'has-pay': cell.events.length }">
+          <div class="cal-cell-day" x-text="cell.day"></div>
+          <div class="cal-cell-events">
+            <template x-for="(e, ei) in cell.events" :key="e.id + '-' + ei">
+              <div class="cal-pay" :class="{ paid: e.paid }" @click="openSubDetails(e.id)" :title="(e.paid ? '✓ оплачено — ' : '') + e.name + ' — ' + fmt(e.amount) + ' ' + e.currency">
+                <span class="cal-pay-check" x-show="e.paid">✓</span>
+                <span class="cal-pay-logo" x-show="!e.paid && logoSrc(e.logo_url)">
+                  <img :src="logoSrc(e.logo_url)" alt="" @error="$event.target.parentElement.style.display='none'">
+                </span>
+                <span class="cal-pay-name" x-text="e.name"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
     </div>
   </div>
 
@@ -559,7 +757,7 @@
       <button class="btn" @click="openWebhookForm()">+ Новый канал</button>
     </div>
     <div style="margin-bottom:14px">
-      <button class="btn btn-ghost btn-sm" @click="loadNotifLogs(); notifLogsOpen = true">📜 Журнал доставки</button>
+      <button class="btn btn-ghost btn-sm" @click="loadNotifLogs(); notifLogsOpen = true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:5px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h8"/></svg>Журнал доставки</button>
     </div>
     <template x-for="w in webhooks" :key="w.id">
       <div class="webhook-card">
@@ -596,7 +794,7 @@
          class="modal-backdrop">
       <div class="modal-box" style="max-width:760px">
         <div class="modal-head">
-          <h3>📜 Журнал доставки уведомлений</h3>
+          <h3>Журнал доставки уведомлений</h3>
           <button class="modal-close" @click="notifLogsOpen = false">×</button>
         </div>
         <div class="modal-body">
@@ -635,6 +833,32 @@
           <span x-show="!updateChecking">Проверить обновления</span>
           <span x-show="updateChecking">Проверяю…</span>
         </button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <h3>Оформление</h3>
+      <div class="meta" style="margin-bottom:16px">Основной цвет и тема интерфейса</div>
+      <div class="appearance-row">
+        <div>
+          <label class="form-label">Основной цвет</label>
+          <div class="accent-swatches">
+            <template x-for="c in accentColors" :key="c.id">
+              <button class="accent-swatch" :class="{active: accent === c.id}"
+                      :style="'background:' + (theme === 'dark' ? c.dark : c.light)"
+                      @click="setAccent(c.id)" :title="c.name">
+                <span x-show="accent === c.id">✓</span>
+              </button>
+            </template>
+          </div>
+        </div>
+        <div>
+          <label class="form-label">Тема</label>
+          <div class="theme-toggle-row">
+            <button class="btn btn-ghost btn-sm" :class="{active: theme === 'light'}" @click="if (theme !== 'light') toggleTheme()">☀ Светлая</button>
+            <button class="btn btn-ghost btn-sm" :class="{active: theme === 'dark'}" @click="if (theme !== 'dark') toggleTheme()">☾ Тёмная</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -688,7 +912,7 @@
         Пока нет резервных копий.
       </div>
       <div class="backups-list" x-show="backups.length">
-        <template x-for="b in backups" :key="b.name">
+        <template x-for="b in (backupsExpanded ? backups : backups.slice(0, 3))" :key="b.name">
           <div class="backup-row">
             <div class="backup-info">
               <span class="backup-badge" :class="b.kind" x-text="b.kind === 'pre-update' ? 'перед обновл.' : (b.kind === 'auto' ? 'авто' : b.kind)"></span>
@@ -698,6 +922,10 @@
             <button class="btn btn-ghost btn-sm" @click="restoreBackup(b.name)" x-show="currentUser?.role === 'admin'">Восстановить</button>
           </div>
         </template>
+        <button class="backups-more" x-show="backups.length > 3" @click="backupsExpanded = !backupsExpanded">
+          <span x-text="backupsExpanded ? 'Свернуть' : ('Показать ещё ' + (backups.length - 3))"></span>
+          <span class="backups-more-caret" :class="{ open: backupsExpanded }">▾</span>
+        </button>
       </div>
     </div>
 
@@ -760,11 +988,10 @@
 
 <!-- ===== Форма подписки ===== -->
 <template x-if="subForm">
-<div x-show="subForm"
-     @mousedown.self="backdropDown = true"
+<div @mousedown.self="backdropDown = true"
      @mouseup.self="if (backdropDown) subForm = null; backdropDown = false"
      class="modal-backdrop">
-  <div class="modal wide" x-show="subForm">
+  <div class="modal wide">
     <div class="modal-head">
       <div>
         <div class="meta" x-text="subForm?.id ? 'Редактирование' : 'Создание'"></div>
@@ -772,18 +999,24 @@
       </div>
       <button class="modal-close" @click="subForm = null">×</button>
     </div>
-    <div class="modal-body" x-show="subForm">
+    <div class="modal-body">
       <div class="form-grid">
         <div>
-          <label class="form-label">Тип</label>
+          <label class="form-label">Тип
+            <span class="help">
+              <button type="button" class="help-btn" :class="{on: openTip === 'type'}" @click="toggleTip('type', $event)">?</button>
+            </span>
+          </label>
           <select x-model="subForm.sub_type">
             <option value="recurring">Подписка — регулярная оплата</option>
-            <option value="balance">Счёт/Баланс — пополняемый счёт</option>
+            <option value="balance">Баланс (Периодическое списание)</option>
+            <option value="balance_daily">Баланс (Ежедневное списание)</option>
             <option value="onetime">Разовый платёж</option>
           </select>
           <div class="form-hint">
             <span x-show="subForm.sub_type === 'recurring'">Регулярные платежи в указанный день месяца (SaaS, хостинг, домен).</span>
-            <span x-show="subForm.sub_type === 'balance'">Счёт с балансом. День списания — опционально (есть автосписание / нет). API получения баланса — опционально.</span>
+            <span x-show="subForm.sub_type === 'balance'">Счёт с балансом, списывается раз в период целой суммой. День списания и API баланса — опционально.</span>
+            <span x-show="subForm.sub_type === 'balance_daily'">Счёт с балансом, списывается каждый день понемногу. Стоимость указывается за месяц — система посчитает дневной расход.</span>
             <span x-show="subForm.sub_type === 'onetime'">Одноразовая оплата (лицензия, разовая услуга).</span>
           </div>
         </div>
@@ -807,23 +1040,40 @@
           </div>
         </div>
 
-        <div x-show="subForm.sub_type === 'balance'" class="form-balance-block">
-          <div class="form-section-title">Контроль баланса</div>
+        <div x-show="subForm.sub_type === 'balance' || subForm.sub_type === 'balance_daily'" class="form-balance-block">
+          <div class="form-section-title">
+            <span class="sec-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
+            Контроль баланса
+          </div>
           <div class="form-grid cols-2">
             <div>
               <label class="form-label">Текущий баланс</label>
               <input type="number" step="0.01" x-model.number="subForm.balance" :disabled="subForm.balance_api_enabled">
               <div class="form-hint" x-show="subForm.balance_api_enabled">Обновляется автоматически из API каждые 30 минут.</div>
             </div>
-            <div x-show="!subForm.balance_api_enabled">
-              <label class="form-label">День списания (опционально)</label>
+            <div x-show="subForm.sub_type === 'balance' && !subForm.balance_api_enabled">
+              <label class="form-label">День списания (опционально)
+                <span class="help">
+                  <button type="button" class="help-btn" :class="{on: openTip === 'bday'}" @click="toggleTip('bday', $event)">?</button>
+                </span>
+              </label>
               <input type="number" min="1" max="28" x-model.number="subForm.billing_day" placeholder="не задан">
-              <div class="form-hint">Если пусто — автосписания нет, баланс ведётся вручную. В день списания система вычтет стоимость из баланса.</div>
             </div>
             <div>
-              <label class="form-label">Минимум для уведомления</label>
+              <label class="form-label">Минимум для уведомления
+                <span class="help">
+                  <button type="button" class="help-btn" :class="{on: openTip === 'minbal'}" @click="toggleTip('minbal', $event)">?</button>
+                </span>
+              </label>
               <input type="number" step="0.01" x-model.number="subForm.min_balance">
-              <div class="form-hint">Уведомление придёт если баланс ≤ этого минимума, либо если баланса не хватает на следующее списание (по стоимости). Можно оставить 0 — тогда тревога только по стоимости.</div>
+            </div>
+            <div x-show="subForm.sub_type === 'balance_daily'">
+              <label class="form-label">Уведомить, если хватает менее, дней
+                <span class="help">
+                  <button type="button" class="help-btn" :class="{on: openTip === 'daysleft'}" @click="toggleTip('daysleft', $event)">?</button>
+                </span>
+              </label>
+              <input type="number" min="1" max="90" x-model.number="subForm.notify_days_left" placeholder="10">
             </div>
           </div>
 
@@ -882,17 +1132,25 @@
         </div>
 
         <div class="form-section">
-          <div class="form-section-title">🔔 Уведомления</div>
-
-          <label class="toggle-row">
-            <span class="toggle-switch" :class="{on: subForm.auto_renew}" @click="subForm.auto_renew = !subForm.auto_renew">
-              <span class="toggle-knob"></span>
-            </span>
-            <span class="toggle-label">Продлевается автоматически</span>
-          </label>
-          <div class="form-hint" style="margin-bottom:12px">
-            Если включено — платёж списывается автоматически, отмечать оплату вручную не нужно.
+          <div class="form-section-title">
+            <span class="sec-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span>
+            Уведомления
           </div>
+
+          <template x-if="subForm.sub_type === 'recurring' || subForm.sub_type === 'onetime'">
+            <div>
+              <label class="toggle-row">
+                <span class="toggle-switch" :class="{on: subForm.auto_renew}" @click="subForm.auto_renew = !subForm.auto_renew">
+                  <span class="toggle-knob"></span>
+                </span>
+                <span class="toggle-label">Продлевается автоматически
+                  <span class="help">
+                    <button type="button" class="help-btn" :class="{on: openTip === 'renew'}" @click.stop="toggleTip('renew', $event)">?</button>
+                  </span>
+                </span>
+              </label>
+            </div>
+          </template>
 
           <label class="toggle-row">
             <span class="toggle-switch" :class="{on: subForm.notify_enabled}" @click="subForm.notify_enabled = !subForm.notify_enabled">
@@ -901,28 +1159,36 @@
             <span class="toggle-label">Включить уведомления для этой подписки</span>
           </label>
 
-          <div x-show="subForm.notify_enabled" style="margin-top:14px">
+          <div x-show="subForm.notify_enabled && (subForm.sub_type === 'recurring' || subForm.sub_type === 'onetime' || subForm.sub_type === 'balance')" style="margin-top:14px">
             <div class="form-grid cols-2">
               <div>
-                <label class="form-label">Начать напоминать за</label>
+                <label class="form-label" x-text="subForm.sub_type === 'balance' ? 'Начать напоминать за' : 'Начать напоминать за'"></label>
                 <select id="sel-notify-days" x-model="subForm.notify_days_before"
                         @change="subForm.notify_days_before = $event.target.value">
                   <template x-for="d in notifyDayOptions" :key="d">
-                    <option :value="String(d)" x-text="d === 0 ? 'в день платежа' : (d + ' ' + dayWord(d) + ' до платежа')"></option>
+                    <option :value="String(d)" x-text="d === 0 ? (subForm.sub_type === 'balance' ? 'в день списания' : 'в день платежа') : (d + ' ' + dayWord(d) + (subForm.sub_type === 'balance' ? ' до списания' : ' до платежа'))"></option>
                   </template>
                 </select>
-                <div class="form-hint">Дальше напоминает каждый день, пока не отметите оплату.</div>
+                <div class="form-hint" x-show="subForm.sub_type !== 'balance'">Дальше напоминает каждый день, пока не отметите оплату.</div>
+                <div class="form-hint" x-show="subForm.sub_type === 'balance'">Напомнит заранее, чтобы успеть пополнить счёт до списания.</div>
               </div>
-              <div>
+              <div x-show="subForm.sub_type === 'recurring' || subForm.sub_type === 'onetime'">
                 <label class="form-label">Дата отмены подписки (опционально)</label>
                 <input type="date" x-model="subForm.cancellation_date">
               </div>
             </div>
           </div>
+
+          <div class="form-hint" x-show="subForm.notify_enabled && subForm.sub_type === 'balance_daily'" style="margin-top:10px">
+            Уведомление о балансе настраивается выше, в блоке «Контроль баланса» (порог в днях).
+          </div>
         </div>
 
         <div class="form-section">
-          <div class="form-section-title">Привязка</div>
+          <div class="form-section-title">
+            <span class="sec-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"/></svg></span>
+            Привязка
+          </div>
           <div class="form-grid cols-2">
             <div>
               <label class="form-label">Организация</label>
@@ -952,7 +1218,7 @@
                   <div class="search-dropdown-list">
                     <div class="icon-dropdown-item" :class="{ active: !subForm.contractor_id }" @click="pickContractor('')">— не выбран —</div>
                     <template x-for="c in filteredContractors()" :key="c.id">
-                      <div class="icon-dropdown-item" :class="{ active: String(subForm.contractor_id) === String(c.id) }" @click="pickContractor(c.id)">
+                      <div class="icon-dropdown-item" :class="{ active: String(subForm?.contractor_id) === String(c.id) }" @click="pickContractor(c.id)">
                         <img x-show="logoSrc(c.logo_url)" :src="logoSrc(c.logo_url)" alt="" style="width:20px;height:20px;object-fit:contain">
                         <span x-text="c.name"></span>
                       </div>
@@ -994,7 +1260,7 @@
                 <div class="icon-dropdown-menu" x-show="iconDropdown === 'category'" x-transition.opacity x-cloak>
                   <div class="icon-dropdown-item" :class="{ active: !subForm.category_id }" @click="pickCategory('')">— без категории —</div>
                   <template x-for="c in categories" :key="c.id">
-                    <div class="icon-dropdown-item" :class="{ active: String(subForm.category_id) === String(c.id) }" @click="pickCategory(c.id)">
+                    <div class="icon-dropdown-item" :class="{ active: String(subForm?.category_id) === String(c.id) }" @click="pickCategory(c.id)">
                       <img x-show="isIconUrl(c.icon)" :src="c.icon" alt="">
                       <span x-show="!isIconUrl(c.icon)" x-text="c.icon || '📁'" style="font-size:18px"></span>
                       <span x-text="c.name"></span>
@@ -1024,7 +1290,7 @@
                 <div class="icon-dropdown-menu" x-show="iconDropdown === 'payment'" x-transition.opacity x-cloak>
                   <div class="icon-dropdown-item" :class="{ active: !subForm.payment_method_id }" @click="pickPayment('')">— не указан —</div>
                   <template x-for="p in paymentMethods" :key="p.id">
-                    <div class="icon-dropdown-item" :class="{ active: String(subForm.payment_method_id) === String(p.id) }" @click="pickPayment(p.id)">
+                    <div class="icon-dropdown-item" :class="{ active: String(subForm?.payment_method_id) === String(p.id) }" @click="pickPayment(p.id)">
                       <img x-show="isIconUrl(p.icon)" :src="p.icon" alt="">
                       <span x-show="!isIconUrl(p.icon)" x-text="p.icon || '💳'" style="font-size:18px"></span>
                       <span x-text="p.name"></span>
@@ -1038,7 +1304,10 @@
         </div>
 
         <div class="form-section">
-          <div class="form-section-title">Дополнительно</div>
+          <div class="form-section-title">
+            <span class="sec-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+            Дополнительно
+          </div>
           <label class="form-label">URL сервиса</label>
           <input x-model="subForm.url" placeholder="https://...">
           <div style="margin-top:12px">
@@ -1257,7 +1526,7 @@
             <input type="checkbox" x-model="simpleForm.data.ignore_ssl">
             <span>Игнорировать SSL-ошибки</span>
           </label>
-          <button type="button" class="btn btn-ghost btn-sm" style="margin-top:10px; align-self:flex-start" @click="testChannelConfig()">🧪 Проверить настройки (без сохранения)</button>
+          <button type="button" class="btn btn-ghost btn-sm" style="margin-top:10px; align-self:flex-start" @click="testChannelConfig()"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:5px"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Проверить настройки (без сохранения)</button>
         </div>
 
         <!-- Логотип контрагента -->
@@ -1341,6 +1610,13 @@
     <div class="toast" :class="t.type" x-text="t.text"></div>
   </template>
 </div>
+
+<!-- Единый всплывающий поповер подсказок -->
+<template x-if="openTip">
+  <div class="tip-backdrop" @click="openTip = ''">
+    <div class="help-pop" :style="'--tip-x:'+tipX+'px;--tip-y:'+tipY+'px'" @click.stop x-html="tipTexts[openTip] || ''"></div>
+  </div>
+</template>
 
 <script src="/static/app.js?v=__BUILD__"></script>
 </body>

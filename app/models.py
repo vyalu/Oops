@@ -96,6 +96,8 @@ class Subscription(Base):
     last_low_balance_notify = Column(Date, nullable=True)
     billing_day = Column(Integer, default=1)
     min_balance = Column(Float, default=0)
+    daily_charge = Column(Boolean, default=False)  # LEGACY: заменён типом balance_daily, оставлен для миграции
+    notify_days_left = Column(Integer, default=10)  # для balance_daily: предупредить, когда хватает ≤ N дней
     balance_api_url = Column(String(500), default="")
     balance_api_path = Column(String(100), default="balance")
 
@@ -169,3 +171,12 @@ class NotificationLog(Base):
     message = Column(Text)
     sent_at = Column(DateTime, default=datetime.utcnow)
     success = Column(Boolean, default=True)
+
+class MonthlySnapshot(Base):
+    """Снимок суммарного месячного расхода на конкретную дату.
+    Раз в месяц планировщик пишет сюда total_monthly — накапливается история для графика динамики."""
+    __tablename__ = "monthly_snapshot"
+    id = Column(Integer, primary_key=True)
+    period = Column(String(7), unique=True)   # "2026-07"
+    total_monthly = Column(Float, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)

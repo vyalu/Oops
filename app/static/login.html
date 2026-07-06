@@ -1,52 +1,71 @@
 <!DOCTYPE html>
 <html lang="ru" id="root-html">
 <head>
+<script>
+// Применяем тему и акцент СИНХРОННО до отрисовки — убирает мелькание (FOUC)
+(function () {
+  try {
+    var root = document.documentElement;
+    var theme = localStorage.getItem('oops-theme') || 'dark';
+    root.setAttribute('data-theme', theme);
+    var ACC = {amber:{light:'#D97706',dark:'#E8951F'},terracotta:{light:'#C2612F',dark:'#DB8155'},emerald:{light:'#0F766E',dark:'#2DD4BF'},indigo:{light:'#4F46E5',dark:'#818CF8'},rose:{light:'#BE185D',dark:'#F472B6'},slate:{light:'#475569',dark:'#94A3B8'},ocean:{light:'#0369A1',dark:'#38BDF8'},olive:{light:'#4D7C0F',dark:'#A3E635'}};
+    var id = localStorage.getItem('oops-accent') || 'amber';
+    var c = ACC[id] || ACC.amber;
+    var hex = theme === 'dark' ? c.dark : c.light;
+    function mix(a,b,t){a=parseInt(a.slice(1),16);b=parseInt(b.slice(1),16);var ar=(a>>16)&255,ag=(a>>8)&255,ab=a&255,br=(b>>16)&255,bg=(b>>8)&255,bb=b&255;return '#'+((1<<24)+((Math.round(ar*t+br*(1-t)))<<16)+((Math.round(ag*t+bg*(1-t)))<<8)+(Math.round(ab*t+bb*(1-t)))).toString(16).slice(1);}
+    var s = root.style;
+    s.setProperty('--accent', hex);
+    if (theme === 'dark') { s.setProperty('--bg', mix(hex,'#161311',0.06)); s.setProperty('--bg-card', mix(hex,'#211C17',0.04)); }
+    else { s.setProperty('--bg', mix(hex,'#F4F0E9',0.06)); s.setProperty('--bg-card', '#FFFFFF'); }
+  } catch (e) {}
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Oops! — вход</title>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-<noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"></noscript>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
 <style>
-:root, :root[data-theme="dark"] {
-  --bg: #0a0a0a;
-  --bg-card: #111111;
-  --bg-elev: #161616;
-  --border: #1f1f1f;
-  --border-strong: #2a2a2a;
-  --text: #e4e4e4;
-  --text-bright: #fafafa;
-  --text-dim: #a1a1a1;
-  --text-mute: #6e6e6e;
-  --accent: #5ED0BD;
-  --accent-hover: #7ee0d0;
-  --accent-on: #001a14;
-  --accent-dim: rgba(94, 208, 189, 0.10);
-  --danger: #FA7080;
+:root, :root[data-theme="light"] {
+  --bg: #F4F0E9;
+  --bg-card: #FFFFFF;
+  --bg-elev: #FBF8F2;
+  --border: #E9E3D9;
+  --border-strong: #DDD5C8;
+  --text: #1C1917;
+  --text-bright: #0F0D0C;
+  --text-dim: #78716C;
+  --text-mute: #A8A29E;
+  --accent: #D97706;
+  --accent-hover: #B45309;
+  --accent-on: #FFFFFF;
+  --accent-dim: rgba(217, 119, 6, 0.10);
+  --danger: #C2410C;
 }
-:root[data-theme="light"] {
-  --bg: #ffffff;
-  --bg-card: #ffffff;
-  --bg-elev: #fafafa;
-  --border: #ececec;
-  --border-strong: #dcdcdc;
-  --text: #1a1a1a;
-  --text-bright: #000000;
-  --text-dim: #595959;
-  --text-mute: #8c8c8c;
-  --accent: #1a8576;
-  --accent-hover: #2a9c8a;
-  --accent-on: #ffffff;
-  --accent-dim: rgba(26, 133, 118, 0.08);
-  --danger: #c84a5e;
+:root[data-theme="dark"] {
+  --bg: #161311;
+  --bg-card: #211C17;
+  --bg-elev: #2A241D;
+  --border: #332B23;
+  --border-strong: #40372C;
+  --text: #F4EEE6;
+  --text-bright: #FFFFFF;
+  --text-dim: #A79E92;
+  --text-mute: #6E655B;
+  --accent: #E8951F;
+  --accent-hover: #F0B45A;
+  --accent-on: #1C1917;
+  --accent-dim: rgba(217, 119, 6, 0.16);
+  --danger: #F58A57;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body {
   background: var(--bg);
   color: var(--text);
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
@@ -139,7 +158,7 @@ button[type="submit"]:hover { background: var(--accent-hover); border-color: var
   background: var(--bg-elev);
   padding: 1px 5px;
   border-radius: 3px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: 11px;
 }
 .theme-toggle-login {
@@ -195,12 +214,43 @@ const savedTheme = localStorage.getItem('oops-theme') || 'dark';
 root.setAttribute('data-theme', savedTheme);
 themeIcon.textContent = savedTheme === 'dark' ? '☾' : '☀';
 
+// Применение выбранного акцента (синхронно с основным приложением)
+const ACCENTS = {
+  amber:{light:'#D97706',dark:'#E8951F'}, terracotta:{light:'#C2612F',dark:'#DB8155'},
+  emerald:{light:'#0F766E',dark:'#2DD4BF'}, indigo:{light:'#4F46E5',dark:'#818CF8'},
+  rose:{light:'#BE185D',dark:'#F472B6'}, slate:{light:'#475569',dark:'#94A3B8'},
+  ocean:{light:'#0369A1',dark:'#38BDF8'}, olive:{light:'#4D7C0F',dark:'#A3E635'},
+};
+function _shade(hex,pct){const n=parseInt(hex.slice(1),16);let r=(n>>16)&255,g=(n>>8)&255,b=n&255;const t=pct<0?0:255,p=Math.abs(pct)/100;r=Math.round((t-r)*p)+r;g=Math.round((t-g)*p)+g;b=Math.round((t-b)*p)+b;return '#'+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1);}
+function _hexA(hex,a){const n=parseInt(hex.slice(1),16);return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')';}
+function _mix(hex,base,t){const a=parseInt(hex.slice(1),16),b=parseInt(base.slice(1),16);const ar=(a>>16)&255,ag=(a>>8)&255,ab=a&255;const br=(b>>16)&255,bg=(b>>8)&255,bb=b&255;return '#'+((1<<24)+((Math.round(ar*t+br*(1-t)))<<16)+((Math.round(ag*t+bg*(1-t)))<<8)+(Math.round(ab*t+bb*(1-t)))).toString(16).slice(1);}
+function applyAccent(){
+  const id = localStorage.getItem('oops-accent') || 'amber';
+  const theme = root.getAttribute('data-theme');
+  const c = ACCENTS[id] || ACCENTS.amber;
+  const hex = theme === 'dark' ? c.dark : c.light;
+  const s = root.style;
+  s.setProperty('--accent', hex);
+  s.setProperty('--accent-hover', _shade(hex, theme==='dark'?20:-20));
+  s.setProperty('--accent-dim', _hexA(hex, theme==='dark'?0.16:0.10));
+  s.setProperty('--accent-on', '#ffffff');
+  if (theme === 'dark') {
+    s.setProperty('--bg', _mix(hex,'#161311',0.06));
+    s.setProperty('--bg-card', _mix(hex,'#211C17',0.04));
+  } else {
+    s.setProperty('--bg', _mix(hex,'#F4F0E9',0.06));
+    s.setProperty('--bg-card', '#FFFFFF');
+  }
+}
+applyAccent();
+
 document.getElementById('theme-toggle').addEventListener('click', () => {
   const current = root.getAttribute('data-theme');
   const next = current === 'dark' ? 'light' : 'dark';
   root.setAttribute('data-theme', next);
   themeIcon.textContent = next === 'dark' ? '☾' : '☀';
   localStorage.setItem('oops-theme', next);
+  applyAccent();
 });
 
 document.getElementById('login-form').addEventListener('submit', async (e) => {

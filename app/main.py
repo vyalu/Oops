@@ -119,7 +119,20 @@ def migrate_db():
                 conn.execute(text("ALTER TABLE subscriptions ADD COLUMN overdue_notify_after VARCHAR(50) DEFAULT '0'"))
             if "notify_duration" not in cols:
                 conn.execute(text("ALTER TABLE subscriptions ADD COLUMN notify_duration VARCHAR(50) DEFAULT '1'"))
+            if "daily_charge" not in cols:
+                conn.execute(text("ALTER TABLE subscriptions ADD COLUMN daily_charge BOOLEAN DEFAULT 0"))
+            if "notify_days_left" not in cols:
+                conn.execute(text("ALTER TABLE subscriptions ADD COLUMN notify_days_left INTEGER DEFAULT 10"))
             conn.commit()
+            # Перевод старого флага daily_charge в новый тип balance_daily (разовая миграция)
+            try:
+                conn.execute(text(
+                    "UPDATE subscriptions SET sub_type='balance_daily' "
+                    "WHERE daily_charge=1 AND sub_type='balance'"
+                ))
+                conn.commit()
+            except Exception as e:
+                log.warning(f"Migration (daily_charge -> balance_daily): {e}")
         except Exception as e:
             log.warning(f"Migration (notify/paid fields): {e}")
 

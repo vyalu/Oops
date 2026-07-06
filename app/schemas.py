@@ -136,6 +136,8 @@ class SubscriptionCreate(BaseModel):
     balance: float = 0
     billing_day: int = 1
     min_balance: float = 0
+    daily_charge: bool = False
+    notify_days_left: int = 10
     balance_api_url: str = ""
     balance_api_path: str = "balance"
 
@@ -176,6 +178,8 @@ class SubscriptionOut(BaseModel):
     balance: float
     billing_day: int
     min_balance: float
+    daily_charge: bool = False
+    notify_days_left: int = 10
     balance_api_url: str
     balance_api_path: str
 
