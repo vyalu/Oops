@@ -120,6 +120,8 @@ class Subscription(Base):
     paid_until = Column(Date, nullable=True)
     # Дата отмены подписки (опционально)
     cancellation_date = Column(Date, nullable=True)
+    # дата последнего уведомления об отмене (не чаще раза в сутки)
+    last_cancel_notify = Column(Date, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

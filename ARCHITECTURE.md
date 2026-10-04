@@ -53,6 +53,7 @@ oops/
 │   ├── schemas.py             # Pydantic схемы для валидации запросов/ответов
 │   ├── auth.py                # JWT, хеширование паролей, RBAC dependencies
 │   ├── scheduler.py           # APScheduler — фоновые задачи
+│   ├── billing.py             # единый расчёт дат платежей, просрочки и низкого баланса
 │   │
 │   ├── routers/               # API endpoints (по сущностям)
 │   │   ├── auth.py            # POST /api/auth/login, logout, me

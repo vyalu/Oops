@@ -10,6 +10,17 @@ from app.database import get_db
 from app.models import Subscription, User, WebhookConfig
 from app.schemas import SubscriptionCreate, SubscriptionUpdate, SubscriptionOut
 from app.auth import get_current_user, require_manager
+from app import billing
+
+MASK = "•••"
+
+
+def _out(item, user):
+    """Наблюдателю (viewer) не показываем URL API баланса — в нём логины/ключи."""
+    out = SubscriptionOut.model_validate(item)
+    if user.role not in ("admin", "manager") and out.balance_api_url:
+        out.balance_api_url = MASK
+    return out
 
 router = APIRouter(prefix="/api/subscriptions", tags=["subscriptions"])
 
@@ -17,7 +28,7 @@ router = APIRouter(prefix="/api/subscriptions", tags=["subscriptions"])
 @router.get("/", response_model=List[SubscriptionOut])
 def list_all(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     organization_id: Optional[int] = None,
     contractor_id: Optional[int] = None,
     employee_id: Optional[int] = None,
@@ -49,11 +60,11 @@ def list_all(
         like = f"%{search}%"
         q = q.filter(or_(Subscription.name.ilike(like), Subscription.notes.ilike(like)))
 
-    return q.order_by(Subscription.next_payment.asc().nullslast()).all()
+    return [_out(i, user) for i in q.order_by(Subscription.next_payment.asc().nullslast()).all()]
 
 
 @router.get("/{item_id}", response_model=SubscriptionOut)
-def get_one(item_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def get_one(item_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     item = db.query(Subscription).options(
         joinedload(Subscription.organization),
         joinedload(Subscription.contractor),
@@ -63,7 +74,7 @@ def get_one(item_id: int, db: Session = Depends(get_db), _: User = Depends(get_c
     ).filter(Subscription.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Не найдено")
-    return item
+    return _out(item, user)
 
 
 @router.post("/", response_model=SubscriptionOut)
@@ -81,6 +92,8 @@ def update(item_id: int, data: SubscriptionUpdate, db: Session = Depends(get_db)
     if not item:
         raise HTTPException(status_code=404, detail="Не найдено")
     for k, v in data.model_dump().items():
+        if k == "balance_api_url" and v == MASK:
+            continue  # маска пришла обратно из формы — оставляем прежний URL
         setattr(item, k, v)
     db.commit()
     db.refresh(item)
@@ -107,49 +120,9 @@ def mark_paid(item_id: int, db: Session = Depends(get_db), _: User = Depends(req
         raise HTTPException(status_code=404, detail="Не найдено")
 
     today = date.today()
-
-    if item.sub_type == "onetime":
-        item.paid_until = item.next_payment or today
-    else:
-        # recurring/balance — отмечаем оплаченным до даты ближайшего платежа,
-        # рассчитанной с учётом периодичности (cycle/frequency)
-        from calendar import monthrange
-
-        def _add_period(d, cycle, freq):
-            freq = max(1, int(freq or 1))
-            if cycle == "daily":
-                return d + timedelta(days=freq)
-            if cycle == "weekly":
-                return d + timedelta(weeks=freq)
-            if cycle == "yearly":
-                try:
-                    return d.replace(year=d.year + freq)
-                except ValueError:
-                    return d.replace(year=d.year + freq, day=28)
-            m = d.month - 1 + freq
-            y = d.year + m // 12
-            m = m % 12 + 1
-            dd = min(d.day, monthrange(y, m)[1])
-            return date(y, m, dd)
-
-        cycle = item.cycle or "monthly"
-        freq = item.frequency or 1
-        anchor = item.next_payment or item.start_date
-        if not anchor and item.billing_day:
-            day = min(item.billing_day, 28)
-            try:
-                anchor = today.replace(day=day)
-            except ValueError:
-                anchor = today
-        if anchor:
-            d = anchor
-            guard = 0
-            while d < today and guard < 1000:
-                d = _add_period(d, cycle, freq)
-                guard += 1
-            item.paid_until = d
-        else:
-            item.paid_until = today
+    # Если есть неоплаченный просроченный платёж — закрываем его,
+    # иначе — ближайший предстоящий (см. app/billing.py).
+    item.paid_until = billing.mark_paid_until(item, today)
 
     # сбрасываем отметку об отправленном напоминании (платёж закрыт)
     item.last_payment_notify_for = None
@@ -167,10 +140,7 @@ def fetch_balance(item_id: int, db: Session = Depends(get_db), _: User = Depends
         raise HTTPException(status_code=400, detail="URL для проверки баланса не указан")
 
     try:
-        with httpx.Client(timeout=15, verify=False, follow_redirects=True) as client:
-            r = client.get(item.balance_api_url)
-            r.raise_for_status()
-            raw_text = r.text
+        raw_text = http_get_balance(item.balance_api_url)
     except httpx.HTTPError as e:
         raise HTTPException(status_code=500, detail=f"Ошибка запроса: {e}")
 
@@ -195,6 +165,24 @@ def fetch_balance(item_id: int, db: Session = Depends(get_db), _: User = Depends
         raise HTTPException(status_code=500, detail=f"Значение '{balance_value}' не является числом")
 
     return {"success": True, "balance": item.balance}
+
+
+def http_get_balance(url: str) -> str:
+    """GET к API баланса. Сначала с проверкой сертификата; если сервер с
+    самоподписанным сертификатом — повторяем без проверки (как было раньше),
+    чтобы не сломать уже настроенные счета."""
+    try:
+        with httpx.Client(timeout=15, follow_redirects=True) as client:
+            r = client.get(url)
+    except httpx.ConnectError as e:
+        if "CERTIFICATE" not in str(e).upper() and "SSL" not in str(e).upper():
+            raise
+        import logging
+        logging.getLogger("oops").warning("Balance API: SSL certificate not trusted, retrying without verification")
+        with httpx.Client(timeout=15, verify=False, follow_redirects=True) as client:
+            r = client.get(url)
+    r.raise_for_status()
+    return r.text
 
 
 class _ApiError(Exception):
@@ -228,7 +216,7 @@ def _extract_balance(raw_text: str, path: str):
         if isinstance(val, (int, float)):
             return val
         if isinstance(val, str):
-            s = val.strip()
+            s = val.strip().replace("\u2212", "-")
             # "109.30 EUR", "1 234,56 руб", "−50.00" → вытащим число
             # убираем пробелы-разделители тысяч
             s2 = s.replace("\u00a0", "").replace(" ", "")
@@ -290,16 +278,21 @@ def _extract_balance(raw_text: str, path: str):
 
     # 2) Текстовые форматы
     import re
-    m = re.search(r'(?:balance|money|amount|sum)\s*[=:]\s*([0-9]+(?:[.,][0-9]+)?)', text_stripped, re.IGNORECASE)
+    # Отрицательный баланс должен остаться отрицательным: учитываем «-» и «−» (U+2212)
+    norm = text_stripped.replace("\u2212", "-")
+    m = re.search(r'(?:balance|money|amount|sum)\s*[=:]\s*(-?[0-9]+(?:[.,][0-9]+)?)', norm, re.IGNORECASE)
     if m:
         return m.group(1).replace(",", ".")
-    for line in text_stripped.splitlines():
+    for line in norm.splitlines():
         line = line.strip().replace(",", ".")
-        if re.fullmatch(r'[0-9]+(?:\.[0-9]+)?', line):
+        if re.fullmatch(r'-?[0-9]+(?:\.[0-9]+)?', line):
             return line
-    m = re.search(r'([0-9]+(?:[.,][0-9]+)?)', text_stripped)
-    if m:
-        return m.group(1).replace(",", ".")
+    # Последний шанс: короткий ответ ровно с одним числом («100.50 RUB»).
+    # В длинных ответах (HTML-страница ошибки и т.п.) случайное число не берём.
+    if len(norm) <= 50:
+        nums = re.findall(r'-?[0-9]+(?:[.,][0-9]+)?', norm)
+        if len(nums) == 1:
+            return nums[0].replace(",", ".")
     return None
 
 
@@ -310,106 +303,54 @@ def stats(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
 
     subs = db.query(Subscription).filter(Subscription.is_active == True).all()
 
-    total_monthly = 0.0
-    total_yearly = 0.0
-    for s in subs:
-        if s.sub_type == "onetime":
-            continue
-        # Приведение к месячной стоимости
-        if s.cycle == "monthly":
-            month_cost = s.price / max(s.frequency, 1)
-        elif s.cycle == "yearly":
-            month_cost = s.price / (12 * max(s.frequency, 1))
-        elif s.cycle == "weekly":
-            month_cost = s.price * (4.345 / max(s.frequency, 1))
-        elif s.cycle == "daily":
-            month_cost = s.price * (30 / max(s.frequency, 1))
-        else:
-            month_cost = 0
-        total_monthly += month_cost
+    total_monthly = sum(billing.monthly_cost(s) for s in subs if s.sub_type != "onetime")
     total_yearly = total_monthly * 12
 
-    from calendar import monthrange
-
-    def _add_period(d, cycle, freq):
-        freq = max(1, int(freq or 1))
-        if cycle == "daily":
-            return d + timedelta(days=freq)
-        if cycle == "weekly":
-            return d + timedelta(weeks=freq)
-        if cycle == "yearly":
-            try:
-                return d.replace(year=d.year + freq)
-            except ValueError:
-                return d.replace(year=d.year + freq, day=28)
-        m = d.month - 1 + freq
-        y = d.year + m // 12
-        m = m % 12 + 1
-        day = min(d.day, monthrange(y, m)[1])
-        return date(y, m, day)
-
-    def get_next_payment_date(s):
-        """Дата следующего платежа с учётом периодичности."""
-        if s.sub_type == "onetime":
-            return s.next_payment
-        if s.sub_type != "recurring":
-            return s.next_payment
-        cycle = s.cycle or "monthly"
-        freq = s.frequency or 1
-        # опорная дата
-        anchor = s.next_payment or s.start_date
-        if not anchor and s.billing_day:
-            day = min(s.billing_day, 28)
-            try:
-                anchor = today.replace(day=day)
-            except ValueError:
-                anchor = None
-        if not anchor:
-            return None
-        d = anchor
-        guard = 0
-        while d < today and guard < 1000:
-            d = _add_period(d, cycle, freq)
-            guard += 1
-        return d
+    def _card(s, pay_date):
+        return {
+            "id": s.id,
+            "name": s.name,
+            "price": s.price,
+            "currency": s.currency,
+            "next_payment": pay_date.isoformat(),
+            "organization": s.organization.name if s.organization else None,
+            "logo_url": s.contractor.logo_url if s.contractor and s.contractor.logo_url else None,
+        }
 
     upcoming = []
     overdue = []
     for s in subs:
         if s.sub_type in ("balance", "balance_daily"):
             continue
-        next_pay = get_next_payment_date(s)
-        if not next_pay:
-            continue
-        # уже оплачено до этой даты — не показываем
-        if s.paid_until and s.paid_until >= next_pay:
-            continue
-        item = {
-            "id": s.id,
-            "name": s.name,
-            "price": s.price,
-            "currency": s.currency,
-            "next_payment": next_pay.isoformat(),
-            "organization": s.organization.name if s.organization else None,
-            "logo_url": s.contractor.logo_url if s.contractor and s.contractor.logo_url else None,
-        }
-        if today <= next_pay <= in_30_days:
-            upcoming.append(item)
-        elif next_pay < today and not s.auto_renew and s.sub_type == "onetime":
+        # Просрочка: ручная оплата, наступивший платёж не отмечен оплаченным
+        od = billing.overdue_date(s, today)
+        if od:
+            item = _card(s, od)
+            item["days_overdue"] = (today - od).days
             overdue.append(item)
+        next_pay = billing.next_payment_for(s, today)
+        if not next_pay or next_pay < today:
+            continue
+        if billing.is_paid(s, next_pay):
+            continue
+        if next_pay <= in_30_days:
+            upcoming.append(_card(s, next_pay))
     upcoming.sort(key=lambda x: x["next_payment"] or "")
+    overdue.sort(key=lambda x: x["next_payment"] or "")
 
     low_balance = []
     for s in subs:
-        if s.sub_type != "balance":
+        if s.sub_type not in ("balance", "balance_daily"):
             continue
-        threshold = s.min_balance if s.min_balance > 0 else s.price
-        if threshold > 0 and s.balance < threshold:
+        reasons, threshold = billing.low_balance_check(s, today)
+        if reasons:
             low_balance.append({
                 "id": s.id,
                 "name": s.name,
                 "balance": s.balance,
-                "threshold": threshold,
+                "currency": s.currency,
+                "threshold": round(threshold, 2),
+                "reason": "; ".join(reasons),
                 "organization": s.organization.name if s.organization else None,
                 "logo_url": s.contractor.logo_url if s.contractor and s.contractor.logo_url else None,
             })
@@ -420,17 +361,7 @@ def stats(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
         if s.sub_type == "onetime":
             continue
         org_name = s.organization.name if s.organization else "Без организации"
-        if s.cycle == "monthly":
-            month_cost = s.price / max(s.frequency, 1)
-        elif s.cycle == "yearly":
-            month_cost = s.price / (12 * max(s.frequency, 1))
-        elif s.cycle == "weekly":
-            month_cost = s.price * (4.345 / max(s.frequency, 1))
-        elif s.cycle == "daily":
-            month_cost = s.price * (30 / max(s.frequency, 1))
-        else:
-            month_cost = 0
-        by_org[org_name] = by_org.get(org_name, 0) + month_cost
+        by_org[org_name] = by_org.get(org_name, 0) + billing.monthly_cost(s)
 
     # Сумма к оплате в ближайшие 30 дней
     upcoming_30d_total = sum(x["price"] or 0 for x in upcoming)

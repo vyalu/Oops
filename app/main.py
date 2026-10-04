@@ -1,7 +1,6 @@
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse
-from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 import os
@@ -136,6 +135,52 @@ def migrate_db():
         except Exception as e:
             log.warning(f"Migration (notify/paid fields): {e}")
 
+        # 1.2.1: дата последнего уведомления об отмене (дедупликация)
+        try:
+            cols = [row[1] for row in conn.execute(text("PRAGMA table_info(subscriptions)"))]
+            if "last_cancel_notify" not in cols:
+                conn.execute(text("ALTER TABLE subscriptions ADD COLUMN last_cancel_notify DATE"))
+                conn.commit()
+        except Exception as e:
+            log.warning(f"Migration (last_cancel_notify): {e}")
+
+
+def baseline_overdue():
+    """Разовая миграция 1.2.1 (PRAGMA user_version 0 → 1).
+
+    С 1.2.1 подписки с ручной оплатой напоминают о просрочке, пока платёж не
+    отмечен «Продлено». Раньше просрочка по регулярным подпискам не считалась,
+    поэтому старые прошедшие платежи считаем закрытыми — иначе после обновления
+    по всем подпискам разом пришли бы уведомления «Просрочено».
+    """
+    from datetime import date
+    from app import billing
+    from app.models import Subscription
+    with engine.connect() as conn:
+        ver = conn.execute(text("PRAGMA user_version")).scalar() or 0
+    if ver >= 1:
+        return
+    db = SessionLocal()
+    try:
+        today = date.today()
+        n = 0
+        for s in db.query(Subscription).filter(Subscription.sub_type == "recurring",
+                                               Subscription.auto_renew == False).all():
+            od = billing.overdue_date(s, today)
+            if od:
+                s.paid_until = od
+                n += 1
+        db.commit()
+        with engine.connect() as conn:
+            conn.execute(text("PRAGMA user_version = 1"))
+            conn.commit()
+        log.info(f"Migration 1.2.1: baseline paid_until for {n} manual subscriptions")
+    except Exception as e:
+        db.rollback()
+        log.warning(f"Migration (baseline overdue): {e}")
+    finally:
+        db.close()
+
 
 def init_db():
     Base.metadata.create_all(bind=engine)
@@ -197,6 +242,7 @@ def init_db():
         db.commit()
     finally:
         db.close()
+    baseline_overdue()
 
 
 @asynccontextmanager
@@ -209,13 +255,24 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Oops! — учёт подписок и оплат", lifespan=lifespan)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS не нужен: интерфейс и API на одном адресе. Раньше стоял allow_origins=["*"]
+# вместе с allow_credentials — это позволяло чужим сайтам делать запросы от имени
+# вошедшего пользователя.
+
+_USER_FILES_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox"
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    # Загруженные пользователями файлы (логотипы, иконки — в т.ч. SVG): при прямом
+    # открытии в браузере скрипты внутри них не выполнятся.
+    if request.url.path.startswith("/data/"):
+        response.headers["Content-Security-Policy"] = _USER_FILES_CSP
+    return response
 
 # Routers
 app.include_router(auth.router)

@@ -1,19 +1,19 @@
+# Обычный запуск в локальной сети: http://IP-сервера:8383
+# Нужен HTTPS с доменом? Используйте docker-compose.https.yml (см. README).
 services:
   oops:
     build: .
     container_name: oops
     restart: unless-stopped
-    expose:
-      - "8000"
+    ports:
+      - "8383:8000"          # внешний порт : внутренний. Меняйте левое число под себя.
     environment:
       - TZ=Europe/Moscow
-      # secure-куки за HTTPS-прокси Caddy
-      - COOKIE_SECURE=1
-      # SECRET_KEY можно не задавать — сгенерируется автоматически и сохранится в data/secret.key.
-      # Если хотите задать свой — раскомментируйте и впишите случайную строку:
+      # SECRET_KEY сгенерируется автоматически и сохранится в data/secret.key.
+      # Чтобы задать свой — раскомментируйте:
       # - SECRET_KEY=впишите-длинную-случайную-строку
     volumes:
-      - ./data:/app/data
+      - ./data:/app/data     # база, логотипы, бэкапы — хранятся на хосте
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -25,26 +25,3 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-  caddy:
-    image: caddy:2-alpine
-    container_name: oops-caddy
-    restart: unless-stopped
-    depends_on:
-      - oops
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-volumes:
-  caddy_data:
-  caddy_config:

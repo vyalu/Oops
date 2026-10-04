@@ -17,7 +17,7 @@ import httpx
 from app.database import get_db, engine
 from app.models import (
     Base, User, Organization, Contractor, Employee, Category,
-    PaymentMethod, Subscription, WebhookConfig
+    PaymentMethod, Subscription, WebhookConfig, Document, MonthlySnapshot
 )
 
 
@@ -116,7 +116,13 @@ EXPORT_MODELS = {
     "subscriptions": Subscription,
     "webhooks": WebhookConfig,
     "settings": AppSetting,
+    "documents": Document,          # с 1.2.1
+    "snapshots": MonthlySnapshot,   # с 1.2.1 (история для графика)
 }
+
+# Разделы, которых нет в старых экспортах: если их нет в файле — текущие данные
+# этих разделов сохраняются, а не стираются.
+OPTIONAL_SECTIONS = {"documents", "snapshots"}
 
 IMPORT_ORDER = [
     "organizations",
@@ -127,9 +133,13 @@ IMPORT_ORDER = [
     "webhooks",
     "settings",
     "subscriptions",
+    "documents",
+    "snapshots",
 ]
 
 REPLACE_ORDER = [
+    "documents",
+    "snapshots",
     "subscriptions",
     "webhooks",
     "settings",
@@ -185,7 +195,7 @@ def _build_export_payload(db: Session):
     payload = {
         "app": "oops",
         "version": 2,
-        "exported_at": datetime.utcnow().isoformat(),
+        "exported_at": datetime.now().isoformat(timespec="seconds"),
         "data": {},
     }
     for name, model in EXPORT_MODELS.items():
@@ -201,22 +211,44 @@ def _replace_from_payload(db: Session, payload: dict):
         raise HTTPException(status_code=400, detail="Неверный формат экспорта")
 
     data = payload["data"]
+    for name in IMPORT_ORDER:
+        if name in data and not isinstance(data[name], list):
+            raise HTTPException(status_code=400, detail=f"Раздел {name} должен быть списком")
+
+    # Старый экспорт без документов: удаление подписок каскадом удалило бы и
+    # документы — запоминаем их и вернём к подпискам с теми же id.
+    kept_docs = []
+    if "documents" not in data:
+        kept_docs = [_serialize_row(d) for d in db.query(Document).all()]
+
     summary = {}
     for name in REPLACE_ORDER:
+        if name in OPTIONAL_SECTIONS and name not in data:
+            continue
         model = EXPORT_MODELS[name]
         for row in db.query(model).all():
             db.delete(row)
     db.flush()
 
     for name in IMPORT_ORDER:
+        if name in OPTIONAL_SECTIONS and name not in data:
+            continue
         model = EXPORT_MODELS[name]
         rows = data.get(name, [])
-        if not isinstance(rows, list):
-            raise HTTPException(status_code=400, detail=f"Раздел {name} должен быть списком")
         for row in rows:
             if isinstance(row, dict):
                 db.add(model(**_clean_row(model, row)))
         summary[name] = len(rows)
+    db.flush()
+
+    if kept_docs:
+        sub_ids = {i for (i,) in db.query(Subscription.id).all()}
+        restored = 0
+        for row in kept_docs:
+            if row.get("subscription_id") in sub_ids:
+                db.add(Document(**_clean_row(Document, row)))
+                restored += 1
+        summary["documents_kept"] = restored
     return summary
 
 
@@ -431,7 +463,15 @@ def export_data(db: Session = Depends(get_db), _: User = Depends(require_admin))
         }, ensure_ascii=False, indent=2))
         zf.writestr("oops-data.json", json.dumps(payload, ensure_ascii=False, indent=2))
         if os.path.exists(DB_PATH):
-            zf.write(DB_PATH, "oops.db")
+            # консистентная копия живой базы (а не файл, в который сейчас может идти запись)
+            from app.scheduler import sqlite_backup
+            db_tmp = tmp.name + ".db"
+            try:
+                sqlite_backup(DB_PATH, db_tmp)
+                zf.write(db_tmp, "oops.db")
+            finally:
+                if os.path.exists(db_tmp):
+                    os.unlink(db_tmp)
         for folder_name, folder_path in (("logos", LOGOS_DIR), ("uploads", UPLOADS_DIR)):
             if not os.path.isdir(folder_path):
                 continue
@@ -497,28 +537,8 @@ async def import_data(
     except (UnicodeDecodeError, json.JSONDecodeError):
         raise HTTPException(status_code=400, detail="Файл должен быть JSON-экспортом Oops")
 
-    if payload.get("app") != "oops" or not isinstance(payload.get("data"), dict):
-        raise HTTPException(status_code=400, detail="Неверный формат экспорта")
-
-    data = payload["data"]
-    summary = {}
     try:
-        for name in REPLACE_ORDER:
-            model = EXPORT_MODELS[name]
-            for row in db.query(model).all():
-                db.delete(row)
-        db.flush()
-
-        for name in IMPORT_ORDER:
-            model = EXPORT_MODELS[name]
-            rows = data.get(name, [])
-            if not isinstance(rows, list):
-                raise HTTPException(status_code=400, detail=f"Раздел {name} должен быть списком")
-            for row in rows:
-                if isinstance(row, dict):
-                    db.add(model(**_clean_row(model, row)))
-            summary[name] = len(rows)
-
+        summary = _replace_from_payload(db, payload)
         db.commit()
     except HTTPException:
         db.rollback()
@@ -560,7 +580,14 @@ async def upload_update(
         extract_dir = tempfile.mkdtemp(prefix="oops_update_")
         try:
             with tarfile.open(tmp_path, 'r:gz') as tar:
-                tar.extractall(extract_dir)
+                try:
+                    # filter="data" запрещает пути вне папки, симлинки наружу, устройства
+                    tar.extractall(extract_dir, filter="data")
+                except TypeError:  # очень старый Python без фильтров
+                    for m in tar.getmembers():
+                        if m.name.startswith("/") or ".." in m.name.split("/") or m.issym() or m.islnk():
+                            raise tarfile.TarError(f"Недопустимый путь в архиве: {m.name}")
+                    tar.extractall(extract_dir)
         except tarfile.TarError as e:
             raise HTTPException(status_code=400, detail=f"Не удалось распаковать tar.gz: {e}")
         log.append(f"✓ Архив распакован")
@@ -667,6 +694,7 @@ def system_info(_: User = Depends(require_admin)):
         "app_version": VERSION,
         "build": BUILD,
         "python_version": os.popen("python --version").read().strip(),
+        "deploy": os.getenv("OOPS_DEPLOY", "source"),
     }
 
 
@@ -676,7 +704,8 @@ GITHUB_REPO = "vyalu/Oops"
 
 def _parse_version(v: str):
     """'1.0.0' или 'v1.2.3' → (1,0,0) для сравнения. Нечисловые части игнорируются."""
-    v = (v or "").strip().lstrip("vV")
+    # теги бывают «v1.3.0» и «v.1.3.0» — убираем и букву, и точку перед числом
+    v = (v or "").strip().lstrip("vV").lstrip(".")
     parts = []
     for p in v.split("."):
         num = "".join(ch for ch in p if ch.isdigit())
@@ -745,7 +774,7 @@ def list_backups(_: User = Depends(require_admin)):
                         "name": f,
                         "size": st.st_size,
                         "created": datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds"),
-                        "kind": "pre-update" if f.startswith("pre-update-") else "auto",
+                        "kind": "pre-update" if f.startswith("pre-update-") else ("before-restore" if f.startswith("before-restore-") else "auto"),
                     })
                 except OSError:
                     pass
@@ -790,9 +819,21 @@ async def restore_backup(data: dict, _: User = Depends(require_admin)):
                 shutil.copy2(DB_PATH, safety)
             log.append(f"Текущая база сохранена как backups/before-restore-{ts}.db")
 
-        # Заменить рабочую БД выбранным снапшотом
-        shutil.copy2(src, DB_PATH)
+        # Заменить рабочую БД выбранным снапшотом — через backup API SQLite:
+        # корректно даже при открытых соединениях приложения
+        try:
+            from app.scheduler import sqlite_backup
+            sqlite_backup(src, DB_PATH)
+        except Exception:
+            shutil.copy2(src, DB_PATH)
         log.append(f"База восстановлена из {name}")
+        # Храним только 3 последние safety-копии
+        safeties = sorted(f for f in os.listdir(backup_dir) if f.startswith("before-restore-") and f.endswith(".db"))
+        for old in safeties[:-3]:
+            try:
+                os.remove(os.path.join(backup_dir, old))
+            except OSError:
+                pass
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка восстановления: {e}")
 

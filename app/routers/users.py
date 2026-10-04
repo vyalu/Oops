@@ -5,7 +5,7 @@ from typing import List
 from app.database import get_db
 from app.models import User
 from app.schemas import UserCreate, UserUpdate, UserOut
-from app.auth import require_admin, hash_password
+from app.auth import require_admin, hash_password, check_new_password
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -21,6 +21,7 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), _: User = Depen
         raise HTTPException(status_code=400, detail="Пользователь уже существует")
     if data.role not in ("admin", "manager", "viewer"):
         raise HTTPException(status_code=400, detail="Неверная роль")
+    check_new_password(data.password)
     user = User(
         username=data.username,
         password_hash=hash_password(data.password),
@@ -47,6 +48,7 @@ def update_user(user_id: int, data: UserUpdate, db: Session = Depends(get_db), _
     if data.is_active is not None:
         user.is_active = data.is_active
     if data.password:
+        check_new_password(data.password)
         user.password_hash = hash_password(data.password)
     db.commit()
     db.refresh(user)

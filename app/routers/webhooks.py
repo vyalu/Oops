@@ -8,12 +8,17 @@ from app.database import get_db
 from app.models import WebhookConfig, User, Subscription, NotificationLog
 from app.schemas import WebhookCreate, WebhookOut
 from app.auth import get_current_user, require_admin
+from app import billing
 
 router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
 
 
 @router.get("/", response_model=List[WebhookOut])
-def list_all(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def list_all(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    # Каналы содержат токены ботов, ключи Bitrix24 и пароли SMTP — только для админа.
+    # Остальным — пустой список (не 403), чтобы интерфейс загружался как обычно.
+    if user.role != "admin":
+        return []
     return db.query(WebhookConfig).all()
 
 
@@ -108,7 +113,7 @@ def test(item_id: int, db: Session = Depends(get_db), _: User = Depends(require_
 @router.post("/{item_id}/send-upcoming")
 def send_upcoming(item_id: int, days: int = 7, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     """Отправляет уведомления только по подпискам с платежами в ближайшие N дней (по умолчанию 7).
-    Учитывается: onetime — по next_payment, recurring — по billing_day."""
+    Даты считаются так же, как на дашборде и в напоминаниях (app/billing.py)."""
     from datetime import date as _date
 
     wh = db.query(WebhookConfig).filter(WebhookConfig.id == item_id).first()
@@ -118,27 +123,14 @@ def send_upcoming(item_id: int, days: int = 7, db: Session = Depends(get_db), _:
     today = _date.today()
     kind = (wh.kind or "webhook").lower()
 
-    def next_payment_for(s: Subscription):
-        if s.sub_type == "onetime":
-            return s.next_payment
-        if s.sub_type in ("recurring", "balance") and s.billing_day:
-            day = min(s.billing_day, 28)
-            if today.day <= day:
-                try:
-                    return today.replace(day=day)
-                except ValueError:
-                    return None
-            if today.month == 12:
-                return today.replace(year=today.year + 1, month=1, day=day)
-            return today.replace(month=today.month + 1, day=day)
-        return None
-
     subs = db.query(Subscription).filter(Subscription.is_active == True).order_by(Subscription.name).all()
     upcoming = []
     for s in subs:
-        np = next_payment_for(s)
+        np = billing.next_payment_for(s, today)
         if not np:
             continue
+        if s.sub_type != "balance" and billing.is_paid(s, np):
+            continue  # уже отмечено «Продлено»
         diff = (np - today).days
         if 0 <= diff <= days:
             upcoming.append((s, np, diff))
@@ -211,13 +203,18 @@ def _send_webhook(wh: WebhookConfig, data: dict):
     message = data.get("message") or data.get("subscription_notes") or "Тестовое уведомление Oops"
     try:
         if kind == "bitrix24":
-            ok = _send_via_bitrix24(wh, data, message)
+            result = _send_via_bitrix24(wh, data, message)
         elif kind == "email":
-            ok = _send_via_email(wh, data, message)
+            result = _send_via_email(wh, data, message)
         elif kind == "telegram":
-            ok = _send_via_telegram(wh, data, message)
+            result = _send_via_telegram(wh, data, message)
         else:
-            ok = _send_via_webhook(wh, data, message)
-        return {"success": ok, "kind": kind}
+            result = _send_via_webhook(wh, data, message)
+        # раньше здесь весь словарь результата клался в success — и тест
+        # всегда показывал «работает», даже когда отправка не удалась
+        result = dict(result or {})
+        result["success"] = bool(result.get("success"))
+        result["kind"] = kind
+        return result
     except Exception as e:
         return {"success": False, "kind": kind, "error": str(e)}

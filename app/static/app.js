@@ -52,7 +52,8 @@ function app() {
     calRef: new Date(),
     toasts: [],
     theme: 'dark',
-    accent: 'amber',
+    accent: 'terracotta',
+    density: 'normal',
     accentColors: [
       { id: 'amber',     name: 'Янтарь',    light: '#D97706', dark: '#E8951F' },
       { id: 'terracotta',name: 'Терракота', light: '#C2612F', dark: '#DB8155' },
@@ -152,6 +153,7 @@ function app() {
     backups: [],
     backupsExpanded: false,
     appVersion: '',
+    deployMode: 'source',
     updateChecking: false,
     updateInfo: null,
     backdropDown: false,
@@ -319,7 +321,7 @@ function app() {
     },
 
     trendW: 600,
-    trendH: 180,
+    trendH: 200,
 
     // История снимков (все периоды)
     get dashHistory() {
@@ -509,25 +511,86 @@ function app() {
       return t;
     },
 
-    // Список дат платежей подписки от from до to
+    // Список дат платежей подписки от from до to.
+    // Та же логика, что на сервере (app/billing.py): число — «День списания»,
+    // учитываются периодичность (месяц/год) и «каждые N периодов»,
+    // даты считаются от опорной без «сползания» в коротких месяцах.
     upcomingPaymentDates(s, from, to) {
       const out = [];
+      const parse = (v) => v ? new Date(v + 'T00:00:00') : null;
       if (s.sub_type === 'onetime') {
-        if (s.next_payment) {
-          const d = new Date(s.next_payment + 'T00:00:00');
-          if (d >= from && d <= to) out.push(d);
-        }
+        const d = parse(s.next_payment);
+        if (d && d >= from && d <= to) out.push(d);
         return out;
       }
-      const day = s.billing_day ? Math.min(s.billing_day, 28) : null;
-      if (!day) return out;
-      let cursor = new Date(from.getFullYear(), from.getMonth(), day);
-      while (cursor < from) cursor.setMonth(cursor.getMonth() + 1);
-      while (cursor <= to) {
-        out.push(new Date(cursor));
-        cursor.setMonth(cursor.getMonth() + 1);
+      const bd = parseInt(s.billing_day) || 0;
+      if (s.sub_type !== 'recurring' && !bd) return out;   // счёт без дня списания
+      const cycle = s.cycle || 'monthly';
+      const freq = Math.max(1, parseInt(s.frequency) || 1);
+      const clamp = (y, m, day) => new Date(y, m, Math.min(day, new Date(y, m + 1, 0).getDate()));
+      const nth = (a, k) => {
+        if (cycle === 'daily') return new Date(a.getFullYear(), a.getMonth(), a.getDate() + freq * k);
+        if (cycle === 'weekly') return new Date(a.getFullYear(), a.getMonth(), a.getDate() + 7 * freq * k);
+        if (cycle === 'yearly') return clamp(a.getFullYear() + freq * k, a.getMonth(), a.getDate());
+        return clamp(a.getFullYear(), a.getMonth() + freq * k, a.getDate());
+      };
+      // опорная дата
+      const base = parse(s.next_payment) || parse(s.start_date);
+      let anchor = base;
+      if (bd && (cycle === 'monthly' || cycle === 'yearly')) {
+        const b = base || new Date(new Date().setHours(0, 0, 0, 0));
+        anchor = clamp(b.getFullYear(), b.getMonth(), bd);
+        if (base && anchor < base) anchor = nth(anchor, 1);
+      }
+      if (!anchor) return out;
+      // примерный номер периода для from — дальше уточняем
+      let k = 0;
+      if (from > anchor) {
+        const months = (from.getFullYear() - anchor.getFullYear()) * 12 + (from.getMonth() - anchor.getMonth());
+        const days = Math.floor((from - anchor) / 86400000);
+        if (cycle === 'daily') k = Math.floor(days / freq);
+        else if (cycle === 'weekly') k = Math.floor(days / (7 * freq));
+        else if (cycle === 'yearly') k = Math.floor((from.getFullYear() - anchor.getFullYear()) / freq);
+        else k = Math.floor(months / freq);
+        k = Math.max(0, k - 1);
+      }
+      for (let guard = 0; guard < 400; guard++, k++) {
+        const d = nth(anchor, k);
+        if (d > to) break;
+        if (d >= from) out.push(d);
       }
       return out;
+    },
+
+    // Дата ближайшего платежа (сегодня или позже) — та же логика, что у календаря и сервера
+    nextPayDate(s) {
+      if (!s || s.sub_type === 'balance_daily') return null;
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      if (s.sub_type === 'onetime') {
+        const d = s.next_payment ? new Date(s.next_payment + 'T00:00:00') : null;
+        return d && d >= today ? s.next_payment : null;
+      }
+      const to = new Date(today.getFullYear() + 3, today.getMonth(), today.getDate());
+      const d = this.upcomingPaymentDates(s, today, to)[0];
+      if (!d) return null;
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    },
+
+    // Безопасная ссылка: только http(s), иначе null (защита от javascript: в URL)
+    safeUrl(u) {
+      if (!u) return null;
+      const v = String(u).trim();
+      return /^https?:\/\//i.test(v) ? v : null;
+    },
+
+    // Символ валюты для отображения: RUB→₽, USD→$, EUR→€, иначе код как есть
+    cur(code) {
+      const c = String(code || 'RUB').toUpperCase();
+      return ({ RUB: '₽', RUR: '₽', USD: '$', EUR: '€' })[c] || c;
+    },
+
+    escHtml(v) {
+      return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     },
 
     get detailRows() {
@@ -541,7 +604,7 @@ function app() {
         rows.push({ key: 'День списания', value: s.billing_day ? s.billing_day + ' числа каждого месяца' : 'не указан', featured: true });
       }
       rows.push(
-        { key: 'Стоимость', value: fmt(s.price) + ' ' + s.currency, featured: true },
+        { key: 'Стоимость', value: fmt(s.price) + ' ' + this.cur(s.currency), featured: true },
         { key: 'Периодичность', value: this.cycleLabel(s.cycle, s.frequency, s.sub_type) },
         { key: 'Организация', value: s.organization?.name },
         { key: 'Контрагент', value: s.contractor?.name },
@@ -550,24 +613,24 @@ function app() {
         { key: 'Способ оплаты', value: s.payment_method ? ((this.isIconUrl(s.payment_method.icon) ? '' : (s.payment_method.icon ? s.payment_method.icon + ' ' : '')) + s.payment_method.name) : null },
         { key: 'Используется с', value: s.start_date ? this.formatDateLong(s.start_date) : null },
         { key: 'Дата отмены', value: s.cancellation_date ? this.formatDateLong(s.cancellation_date) : null },
-        { key: 'URL', value: s.url, html: s.url ? `<a href="${s.url}" target="_blank">${s.url}</a>` : null },
+        { key: 'URL', value: s.url, html: this.safeUrl(s.url) ? `<a href="${this.escHtml(s.url)}" target="_blank" rel="noopener">${this.escHtml(s.url)}</a>` : null },
         { key: 'Примечания', value: s.notes },
       );
       if (s.sub_type === 'balance' || s.sub_type === 'balance_daily') {
         const balanceRows = [
-          { key: 'Текущий баланс', value: fmt(s.balance) + ' ' + s.currency, featured: true },
+          { key: 'Текущий баланс', value: fmt(s.balance) + ' ' + this.cur(s.currency), featured: true },
         ];
         if (s.sub_type === 'balance_daily') {
           const perDay = (Number(s.price) || 0) / 30;
           balanceRows.push({ key: 'Списание', value: 'ежедневно' });
-          if (perDay > 0) balanceRows.push({ key: 'Расход в день', value: '≈ ' + fmt(perDay) + ' ' + s.currency });
+          if (perDay > 0) balanceRows.push({ key: 'Расход в день', value: '≈ ' + fmt(perDay) + ' ' + this.cur(s.currency) });
         } else if (s.billing_day) {
           balanceRows.push({ key: 'День списания', value: s.billing_day + ' числа' });
         } else {
           balanceRows.push({ key: 'Списание', value: 'вручную (без автосписания)' });
         }
         if (s.min_balance) {
-          balanceRows.push({ key: 'Минимальный баланс', value: fmt(s.min_balance) + ' ' + s.currency });
+          balanceRows.push({ key: 'Минимальный баланс', value: fmt(s.min_balance) + ' ' + this.cur(s.currency) });
         }
         const est = this.lastsEstimate(s);
         if (est) {
@@ -621,7 +684,8 @@ function app() {
       } catch {
         this.theme = localStorage.getItem('oops-theme') || 'dark';
       }
-      this.accent = localStorage.getItem('oops-accent') || 'amber';
+      this.accent = localStorage.getItem('oops-accent') || 'terracotta';
+      this.density = localStorage.getItem('oops-density') === 'compact' ? 'compact' : 'normal';
       localStorage.setItem('oops-theme', this.theme);
       document.documentElement.setAttribute('data-theme', this.theme);
       this.applyAccent();
@@ -685,6 +749,13 @@ function app() {
       g = Math.round((t - g) * p) + g;
       b = Math.round((t - b) * p) + b;
       return '#' + ((1<<24) + (r<<16) + (g<<8) + b).toString(16).slice(1);
+    },
+
+    setDensity(v) {
+      this.density = v === 'compact' ? 'compact' : 'normal';
+      try { localStorage.setItem('oops-density', this.density); } catch {}
+      if (this.density === 'compact') document.documentElement.setAttribute('data-density', 'compact');
+      else document.documentElement.removeAttribute('data-density');
     },
 
     setAccent(id) {
@@ -761,6 +832,7 @@ function app() {
       try {
         const info = await this.api('/api/system/info');
         if (info?.app_version) this.appVersion = info.app_version;
+        this.deployMode = info?.deploy || 'source';
       } catch {}
     },
 
@@ -1509,7 +1581,7 @@ function app() {
     async saveChangePassword() {
       const f = this.pwForm;
       if (!f) return;
-      if (!f.new_password || f.new_password.length < 4) { this.toast('Новый пароль минимум 4 символа', 'error'); return; }
+      if (!f.new_password || f.new_password.length < 6) { this.toast('Новый пароль минимум 6 символов', 'error'); return; }
       if (f.new_password !== f.confirm) { this.toast('Пароли не совпадают', 'error'); return; }
       try {
         await this.api('/api/auth/change-password', {

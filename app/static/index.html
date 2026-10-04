@@ -18,8 +18,9 @@
       var theme = localStorage.getItem('oops-theme') || 'dark';
       root.setAttribute('data-theme', theme);
       var ACC = {amber:{light:'#D97706',dark:'#E8951F'},terracotta:{light:'#C2612F',dark:'#DB8155'},emerald:{light:'#0F766E',dark:'#2DD4BF'},indigo:{light:'#4F46E5',dark:'#818CF8'},rose:{light:'#BE185D',dark:'#F472B6'},slate:{light:'#475569',dark:'#94A3B8'},ocean:{light:'#0369A1',dark:'#38BDF8'},olive:{light:'#4D7C0F',dark:'#A3E635'}};
-      var id = localStorage.getItem('oops-accent') || 'amber';
-      var c = ACC[id] || ACC.amber;
+      var id = localStorage.getItem('oops-accent') || 'terracotta';
+      var c = ACC[id] || ACC.terracotta;
+      if (localStorage.getItem('oops-density') === 'compact') root.setAttribute('data-density', 'compact');
       var hex = theme === 'dark' ? c.dark : c.light;
       function mix(a,b,t){a=parseInt(a.slice(1),16);b=parseInt(b.slice(1),16);var ar=(a>>16)&255,ag=(a>>8)&255,ab=a&255,br=(b>>16)&255,bg=(b>>8)&255,bb=b&255;return '#'+((1<<24)+((Math.round(ar*t+br*(1-t)))<<16)+((Math.round(ag*t+bg*(1-t)))<<8)+(Math.round(ab*t+bb*(1-t)))).toString(16).slice(1);}
       var s = root.style;
@@ -97,7 +98,8 @@
 
     <div class="user-strip">
       <button class="icon-btn" @click="toggleTheme()" :title="theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'">
-        <span x-text="theme === 'dark' ? '☾' : '☀'"></span>
+        <span x-show="theme === 'dark'"><svg class="theme-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span>
+        <span x-show="theme !== 'dark'"><svg class="theme-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg></span>
       </button>
       <div class="user-block">
         <span class="user-avatar" x-text="initial(currentUser?.full_name || currentUser?.username)"></span>
@@ -210,7 +212,11 @@
         <div class="dash-panel-title">Динамика расходов</div>
         <div class="dash-panel-sub">Ежемесячно, ₽ · история</div>
         <template x-if="historyPoints.length >= 2">
-          <svg class="trend-svg" :viewBox="'0 0 ' + trendW + ' ' + trendH" preserveAspectRatio="none" x-html="trendSvg"></svg>
+          <svg class="trend-svg" viewBox="0 0 600 200" preserveAspectRatio="none"
+               x-init="$nextTick(() => { trendW = $el.clientWidth || 600 })"
+               @resize.window.debounce.200ms="trendW = $el.clientWidth || 600"
+               x-effect="$el.setAttribute('viewBox', '0 0 ' + trendW + ' ' + trendH)"
+               x-html="trendSvg"></svg>
         </template>
         <template x-if="historyPoints.length < 2">
           <div class="chart-empty">
@@ -252,15 +258,15 @@
         <template x-for="s in stats.low_balance" :key="s.id">
           <div class="list-row" @click="openSubDetails(s.id)" style="border-bottom: 1px solid var(--border)">
             <div class="dash-logo" x-show="logoSrc(s.logo_url)">
-              <img :src="logoSrc(s.logo_url)" alt="" @error="$event.target.parentElement.style.display='none'">
+              <img :src="(logoSrc(s.logo_url)) || null" alt="" @error="$event.target.parentElement.style.display='none'">
             </div>
             <div class="list-row-main">
               <div class="list-row-name" x-text="s.name"></div>
               <div class="list-row-meta" x-text="s.organization || '—'"></div>
             </div>
             <div class="list-row-right">
-              <div class="list-row-value" style="color: var(--warn)" x-text="fmt(s.balance) + ' ₽'"></div>
-              <div class="list-row-sub" x-text="'порог ' + fmt(s.threshold)"></div>
+              <div class="list-row-value" style="color: var(--warn)" x-text="fmt(s.balance) + ' ' + cur(s.currency)"></div>
+              <div class="list-row-sub" :title="s.reason || ''" x-text="'порог ' + fmt(s.threshold)"></div>
             </div>
           </div>
         </template>
@@ -276,15 +282,15 @@
         <template x-for="s in stats.overdue" :key="s.id">
           <div class="list-row" @click="openSubDetails(s.id)" style="border-bottom: 1px solid var(--border)">
             <div class="dash-logo" x-show="logoSrc(s.logo_url)">
-              <img :src="logoSrc(s.logo_url)" alt="" @error="$event.target.parentElement.style.display='none'">
+              <img :src="(logoSrc(s.logo_url)) || null" alt="" @error="$event.target.parentElement.style.display='none'">
             </div>
             <div class="list-row-main">
               <div class="list-row-name" x-text="s.name"></div>
               <div class="list-row-meta" x-text="s.organization || '—'"></div>
             </div>
             <div class="list-row-right">
-              <div class="list-row-value" style="color: var(--danger)" x-text="fmt(s.price) + ' ' + s.currency"></div>
-              <div class="list-row-sub" x-text="s.next_payment"></div>
+              <div class="list-row-value" style="color: var(--danger)" x-text="fmt(s.price) + ' ' + cur(s.currency)"></div>
+              <div class="list-row-sub" x-text="formatDateLong(s.next_payment) + (s.days_overdue ? ' · ' + s.days_overdue + ' дн.' : '')"></div>
             </div>
           </div>
         </template>
@@ -301,7 +307,7 @@
           <template x-for="s in stats.upcoming" :key="s.id">
             <div class="pay-row" @click="openSubDetails(s.id)">
               <template x-if="logoSrc(s.logo_url)">
-                <span class="pay-logo"><img :src="logoSrc(s.logo_url)" alt=""></span>
+                <span class="pay-logo"><img :src="(logoSrc(s.logo_url)) || null" alt=""></span>
               </template>
               <template x-if="!logoSrc(s.logo_url)">
                 <span class="pay-avatar" :style="'background:' + avatarBg(s.name) + ';color:' + avatarFg(s.name)" x-text="initial(s.name)"></span>
@@ -311,7 +317,7 @@
                 <div class="pay-org" x-text="s.organization || '—'"></div>
               </div>
               <div class="pay-right">
-                <div class="pay-amount"><span x-text="fmt(s.price)"></span> <span class="pay-cur" x-text="s.currency"></span></div>
+                <div class="pay-amount"><span x-text="fmt(s.price)"></span> <span class="pay-cur" x-text="cur(s.currency)"></span></div>
                 <div class="pay-date" x-text="formatDayMonth(s.next_payment)"></div>
               </div>
             </div>
@@ -403,7 +409,7 @@
             <div class="sub-card-identity">
               <div class="logo"
                    :class="{ 'lg': subView === 'large', 'has-logo': !!(logoSrc(s.contractor?.logo_url) || logoSrc(s.logo)) }">
-                <img x-show="logoSrc(s.contractor?.logo_url) || logoSrc(s.logo)" :src="logoSrc(s.contractor?.logo_url) || logoSrc(s.logo)" :alt="s.contractor?.name || s.name || ''" @error="$event.target.style.display='none'">
+                <img x-show="logoSrc(s.contractor?.logo_url) || logoSrc(s.logo)" :src="(logoSrc(s.contractor?.logo_url) || logoSrc(s.logo)) || null" :alt="s.contractor?.name || s.name || ''" @error="$event.target.style.display='none'">
                 <span x-show="!(logoSrc(s.contractor?.logo_url) || logoSrc(s.logo))" x-text="contractorInitials(s.contractor) || '·'"></span>
               </div>
               <div style="min-width:0; flex:1">
@@ -418,19 +424,20 @@
           <div class="sub-card-foot">
             <div class="foot-price-block" x-show="s.sub_type !== 'balance' && s.sub_type !== 'balance_daily'">
               <div class="sub-card-price tabular">
-                <span x-text="fmt(s.price)"></span><span class="currency" x-text="s.currency"></span>
+                <span x-text="fmt(s.price)"></span><span class="currency" x-text="cur(s.currency)"></span>
               </div>
               <div class="sub-card-cycle" x-text="cycleLabel(s.cycle, s.frequency, s.sub_type)"></div>
+              <div class="sub-card-next" x-show="s.is_active && nextPayDate(s)" x-text="'след. ' + formatDate(nextPayDate(s))"></div>
             </div>
             <div class="sub-card-info">
               <div class="balance-info">
                 <div class="balance-info-row" x-show="s.sub_type === 'balance' || s.sub_type === 'balance_daily'">
                   <span class="balance-info-label">Баланс</span>
-                  <span class="balance-amt"><span x-text="fmt(s.balance)"></span><span class="currency" x-text="s.currency"></span></span>
+                  <span class="balance-amt"><span x-text="fmt(s.balance)"></span><span class="currency" x-text="cur(s.currency)"></span></span>
                 </div>
                 <div class="balance-info-row" x-show="s.price > 0">
                   <span class="balance-info-label">Платёж</span>
-                  <span class="balance-pay"><span x-text="fmt(s.price)"></span><span class="currency" x-text="s.currency"></span></span>
+                  <span class="balance-pay"><span x-text="fmt(s.price)"></span><span class="currency" x-text="cur(s.currency)"></span></span>
                 </div>
               </div>
             </div>
@@ -452,7 +459,7 @@
                 <span class="expand-key">Категория</span>
                 <span class="expand-val" style="display:flex; align-items:center; gap:6px">
                   <template x-if="s.category && isIconUrl(s.category.icon)">
-                    <img :src="s.category.icon" alt="" style="width:18px;height:18px;object-fit:contain">
+                    <img :src="isIconUrl(s.category.icon) ? s.category.icon : null" alt="" style="width:18px;height:18px;object-fit:contain">
                   </template>
                   <span x-text="s.category ? ((isIconUrl(s.category.icon) ? '' : (s.category.icon ? s.category.icon + ' ' : '')) + s.category.name) : 'Без категории'"></span>
                 </span>
@@ -471,7 +478,7 @@
               </div>
               <div class="expand-item" x-show="s.sub_type === 'balance' || s.sub_type === 'balance_daily'">
                 <span class="expand-key">Баланс</span>
-                <span class="expand-val" x-text="fmt(s.balance) + ' ' + s.currency"></span>
+                <span class="expand-val" x-text="fmt(s.balance) + ' ' + cur(s.currency)"></span>
               </div>
               <div class="expand-item" x-show="s.payment_method?.name">
                 <span class="expand-key">Оплата</span>
@@ -484,7 +491,7 @@
             </div>
             <div class="expand-actions">
               <button class="btn btn-sm btn-paid" @click.stop="markPaid(s)" x-show="canEdit() && !s.auto_renew && (s.sub_type === 'recurring' || s.sub_type === 'onetime')">✓ Отметить оплату</button>
-              <a x-show="s.url" :href="s.url" target="_blank" class="btn btn-ghost btn-sm" @click.stop>Открыть сайт</a>
+              <a x-show="safeUrl(s.url)" :href="safeUrl(s.url)" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" @click.stop>Открыть сайт</a>
               <button class="btn btn-ghost btn-sm" @click.stop="openSubDetails(s.id)">Подробнее</button>
               <button class="btn btn-ghost btn-sm" @click.stop="openSubForm(s); expandedSub = null" x-show="canEdit()">Редактировать</button>
             </div>
@@ -528,10 +535,10 @@
           <div class="cal-cell-day" x-text="cell.day"></div>
           <div class="cal-cell-events">
             <template x-for="(e, ei) in cell.events" :key="e.id + '-' + ei">
-              <div class="cal-pay" :class="{ paid: e.paid }" @click="openSubDetails(e.id)" :title="(e.paid ? '✓ оплачено — ' : '') + e.name + ' — ' + fmt(e.amount) + ' ' + e.currency">
+              <div class="cal-pay" :class="{ paid: e.paid }" @click="openSubDetails(e.id)" :title="(e.paid ? '✓ оплачено — ' : '') + e.name + ' — ' + fmt(e.amount) + ' ' + cur(e.currency)">
                 <span class="cal-pay-check" x-show="e.paid">✓</span>
                 <span class="cal-pay-logo" x-show="!e.paid && logoSrc(e.logo_url)">
-                  <img :src="logoSrc(e.logo_url)" alt="" @error="$event.target.parentElement.style.display='none'">
+                  <img :src="(logoSrc(e.logo_url)) || null" alt="" @error="$event.target.parentElement.style.display='none'">
                 </span>
                 <span class="cal-pay-name" x-text="e.name"></span>
               </div>
@@ -559,7 +566,7 @@
               <div class="sub-card-name" x-text="o.name"></div>
               <div class="sub-card-org" x-show="o.inn" x-text="'ИНН ' + o.inn"></div>
             </div>
-            <div style="display:flex; gap:6px" x-show="canEdit()">
+            <div class="row-actions" x-show="canEdit()">
               <button class="icon-btn" @click.stop="openOrgForm(o)">✎</button>
               <button class="icon-btn danger" @click.stop="deleteItem('organizations', o.id)">×</button>
             </div>
@@ -587,14 +594,14 @@
       <template x-for="c in contractors" :key="c.id">
         <div class="contractor-card">
           <div class="logo lg" :class="{ 'has-logo': !!c.logo_url }">
-            <img x-show="logoSrc(c.logo_url)" :src="logoSrc(c.logo_url)" :alt="c.name" @error="$event.target.style.display='none'">
+            <img x-show="logoSrc(c.logo_url)" :src="(logoSrc(c.logo_url)) || null" :alt="c.name" @error="$event.target.style.display='none'">
             <span x-show="!c.logo_url" x-text="contractorInitials(c)"></span>
           </div>
           <div class="contractor-card-body">
             <div class="sub-card-name" x-text="c.name"></div>
             <div class="contractor-card-meta">
               <span x-show="c.inn" x-text="'ИНН ' + c.inn"></span>
-              <a :href="c.website" target="_blank" x-show="c.website" x-text="c.website" class="mono" @click.stop></a>
+              <a :href="safeUrl(c.website) || safeUrl('https://' + c.website)" target="_blank" rel="noopener" x-show="c.website" x-text="c.website" class="mono" @click.stop></a>
               <span x-show="c.contact_info" x-text="c.contact_info"></span>
             </div>
           </div>
@@ -628,7 +635,7 @@
               <div class="sub-card-name" x-text="e.full_name"></div>
               <div class="sub-card-org" x-text="e.position || '—'"></div>
             </div>
-            <div style="display:flex; gap:6px" x-show="canEdit()">
+            <div class="row-actions" x-show="canEdit()">
               <button class="icon-btn" @click.stop="openEmployeeForm(e)">✎</button>
               <button class="icon-btn danger" @click.stop="deleteItem('employees', e.id)">×</button>
             </div>
@@ -665,12 +672,12 @@
             <div class="list-row" style="cursor:default">
               <div class="list-row-main" style="display:flex; align-items:center; gap:10px">
                 <span class="dict-icon">
-                  <img x-show="isIconUrl(c.icon)" :src="c.icon" :alt="c.name">
+                  <img x-show="isIconUrl(c.icon)" :src="isIconUrl(c.icon) ? c.icon : null" :alt="c.name">
                   <span x-show="!isIconUrl(c.icon)" x-text="c.icon || '📁'"></span>
                 </span>
                 <span x-text="c.name"></span>
               </div>
-              <div style="display:flex; gap:6px" x-show="canEdit()">
+              <div class="row-actions" x-show="canEdit()">
                 <button class="icon-btn" @click="openCategoryForm(c)">✎</button>
                 <button class="icon-btn danger" @click="deleteItem('categories', c.id)">×</button>
               </div>
@@ -689,7 +696,7 @@
             <div class="list-row" style="cursor:default">
               <div class="list-row-main" style="display:flex; align-items:center; gap:10px">
                 <span class="dict-icon">
-                  <img x-show="isIconUrl(p.icon)" :src="p.icon" :alt="p.name">
+                  <img x-show="isIconUrl(p.icon)" :src="isIconUrl(p.icon) ? p.icon : null" :alt="p.name">
                   <span x-show="!isIconUrl(p.icon)" x-text="p.icon || '💳'"></span>
                 </span>
                 <div style="min-width:0">
@@ -697,7 +704,7 @@
                   <div class="list-row-meta" x-show="p.details" x-text="p.details"></div>
                 </div>
               </div>
-              <div style="display:flex; gap:6px" x-show="canEdit()">
+              <div class="row-actions" x-show="canEdit()">
                 <button class="icon-btn" @click="openPaymentMethodForm(p)">✎</button>
                 <button class="icon-btn danger" @click="deleteItem('payment-methods', p.id)">×</button>
               </div>
@@ -763,7 +770,7 @@
       <div class="webhook-card">
         <div class="webhook-card-head">
           <div style="min-width:0; flex:1; display:flex; gap:12px; align-items:center">
-            <img :src="channelKindIcon(w.kind)" :alt="w.kind" style="width:40px; height:40px; border-radius:8px; flex-shrink:0">
+            <img :src="(channelKindIcon(w.kind)) || null" :alt="w.kind" style="width:40px; height:40px; border-radius:8px; flex-shrink:0">
             <div style="min-width:0; flex:1">
               <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom: 4px">
                 <div class="webhook-name" x-text="w.name"></div>
@@ -827,7 +834,7 @@
         <h1>Система</h1>
         <div class="meta">Обновление приложения</div>
       </div>
-      <div class="page-header-right" x-show="appVersion" style="display:flex; align-items:center; gap:10px">
+      <div class="page-header-right version-bar" x-show="appVersion">
         <span class="version-badge" x-text="appVersion"></span>
         <button class="btn btn-ghost btn-sm" @click="checkUpdate()" :disabled="updateChecking">
           <span x-show="!updateChecking">Проверить обновления</span>
@@ -853,10 +860,17 @@
           </div>
         </div>
         <div>
+          <label class="form-label">Плотность</label>
+          <div class="theme-toggle-row">
+            <button class="btn btn-ghost btn-sm" :class="{active: density !== 'compact'}" @click="setDensity('normal')">Обычно</button>
+            <button class="btn btn-ghost btn-sm" :class="{active: density === 'compact'}" @click="setDensity('compact')">Компактно</button>
+          </div>
+        </div>
+        <div>
           <label class="form-label">Тема</label>
           <div class="theme-toggle-row">
-            <button class="btn btn-ghost btn-sm" :class="{active: theme === 'light'}" @click="if (theme !== 'light') toggleTheme()">☀ Светлая</button>
-            <button class="btn btn-ghost btn-sm" :class="{active: theme === 'dark'}" @click="if (theme !== 'dark') toggleTheme()">☾ Тёмная</button>
+            <button class="btn btn-ghost btn-sm" :class="{active: theme === 'light'}" @click="if (theme !== 'light') toggleTheme()"><span class="theme-inline"><svg class="theme-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg></span> Светлая</button>
+            <button class="btn btn-ghost btn-sm" :class="{active: theme === 'dark'}" @click="if (theme !== 'dark') toggleTheme()"><span class="theme-inline"><svg class="theme-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span> Тёмная</button>
           </div>
         </div>
       </div>
@@ -915,7 +929,7 @@
         <template x-for="b in (backupsExpanded ? backups : backups.slice(0, 3))" :key="b.name">
           <div class="backup-row">
             <div class="backup-info">
-              <span class="backup-badge" :class="b.kind" x-text="b.kind === 'pre-update' ? 'перед обновл.' : (b.kind === 'auto' ? 'авто' : b.kind)"></span>
+              <span class="backup-badge" :class="b.kind" x-text="b.kind === 'pre-update' ? 'перед обновл.' : (b.kind === 'before-restore' ? 'перед восстан.' : (b.kind === 'auto' ? 'авто' : b.kind))"></span>
               <span class="backup-name" x-text="b.name"></span>
               <span class="backup-meta" x-text="b.created.replace('T',' ') + ' · ' + fmtBytes(b.size)"></span>
             </div>
@@ -942,6 +956,12 @@
       </label>
     </div>
 
+    <div class="form-hint" x-show="deployMode === 'image'" style="margin-top:8px">
+      Приложение установлено из готового образа. Обновление архивом здесь сработает до следующего
+      <code>docker compose pull</code> — для постоянного обновления используйте
+      <code>docker compose pull &amp;&amp; docker compose up -d</code>.
+    </div>
+
     <div class="update-log" x-show="updateLog" x-text="updateLog"></div>
   </div>
 
@@ -952,11 +972,11 @@
      @mousedown.self="backdropDown = true"
      @mouseup.self="if (backdropDown) subDetails = null; backdropDown = false"
      class="modal-backdrop">
-  <div class="modal" x-show="subDetails">
+  <div class="modal wide" x-show="subDetails">
     <div class="modal-head">
       <div style="display:flex; align-items:center; gap:14px; min-width:0; flex:1">
         <div class="logo lg" x-show="subDetails?.contractor || logoSrc(subDetails?.logo)" :class="{ 'has-logo': !!(subDetails?.contractor?.logo_url || logoSrc(subDetails?.logo)) }">
-          <img x-show="logoSrc(subDetails?.contractor?.logo_url) || logoSrc(subDetails?.logo)" :src="logoSrc(subDetails?.contractor?.logo_url) || logoSrc(subDetails?.logo)" :alt="subDetails?.contractor?.name || subDetails?.name || ''" @error="$event.target.style.display='none'">
+          <img x-show="logoSrc(subDetails?.contractor?.logo_url) || logoSrc(subDetails?.logo)" :src="(logoSrc(subDetails?.contractor?.logo_url) || logoSrc(subDetails?.logo)) || null" :alt="subDetails?.contractor?.name || subDetails?.name || ''" @error="$event.target.style.display='none'">
           <span x-show="!(subDetails?.contractor?.logo_url || logoSrc(subDetails?.logo))" x-text="contractorInitials(subDetails?.contractor)"></span>
         </div>
         <div style="min-width:0">
@@ -971,7 +991,7 @@
         <template x-for="row in detailRows" :key="row.key">
           <div class="detail-row" x-show="row.value">
             <div class="key" x-text="row.key"></div>
-            <div class="val" :class="{featured: row.featured}" x-html="row.html || row.value"></div>
+            <div class="val" :class="{featured: row.featured}" x-html="row.html || escHtml(row.value)"></div>
           </div>
         </template>
       </div>
@@ -1202,7 +1222,7 @@
               <div class="search-dropdown" @click.outside="contractorSearchOpen = false; contractorSearch = ''">
                 <div class="search-dropdown-field" :class="{ open: contractorSearchOpen }">
                   <img x-show="!contractorSearchOpen && logoSrc(selectedContractor()?.logo_url)"
-                       :src="logoSrc(selectedContractor()?.logo_url)" alt=""
+                       :src="(logoSrc(selectedContractor()?.logo_url)) || null" alt=""
                        class="search-dropdown-field-logo">
                   <input type="text"
                          x-ref="contractorSearchInput"
@@ -1219,7 +1239,7 @@
                     <div class="icon-dropdown-item" :class="{ active: !subForm.contractor_id }" @click="pickContractor('')">— не выбран —</div>
                     <template x-for="c in filteredContractors()" :key="c.id">
                       <div class="icon-dropdown-item" :class="{ active: String(subForm?.contractor_id) === String(c.id) }" @click="pickContractor(c.id)">
-                        <img x-show="logoSrc(c.logo_url)" :src="logoSrc(c.logo_url)" alt="" style="width:20px;height:20px;object-fit:contain">
+                        <img x-show="logoSrc(c.logo_url)" :src="(logoSrc(c.logo_url)) || null" alt="" style="width:20px;height:20px;object-fit:contain">
                         <span x-text="c.name"></span>
                       </div>
                     </template>
@@ -1247,7 +1267,7 @@
                 <button type="button" class="icon-dropdown-trigger" @click="iconDropdown = iconDropdown === 'category' ? '' : 'category'">
                   <template x-if="selectedCategory()">
                     <span class="icon-dropdown-current">
-                      <img x-show="isIconUrl(selectedCategory().icon)" :src="selectedCategory().icon" alt="">
+                      <img x-show="isIconUrl(selectedCategory().icon)" :src="isIconUrl(selectedCategory().icon) ? selectedCategory().icon : null" alt="">
                       <span x-show="!isIconUrl(selectedCategory().icon)" x-text="selectedCategory().icon || '📁'" style="font-size:18px"></span>
                       <span x-text="selectedCategory().name"></span>
                     </span>
@@ -1261,7 +1281,7 @@
                   <div class="icon-dropdown-item" :class="{ active: !subForm.category_id }" @click="pickCategory('')">— без категории —</div>
                   <template x-for="c in categories" :key="c.id">
                     <div class="icon-dropdown-item" :class="{ active: String(subForm?.category_id) === String(c.id) }" @click="pickCategory(c.id)">
-                      <img x-show="isIconUrl(c.icon)" :src="c.icon" alt="">
+                      <img x-show="isIconUrl(c.icon)" :src="isIconUrl(c.icon) ? c.icon : null" alt="">
                       <span x-show="!isIconUrl(c.icon)" x-text="c.icon || '📁'" style="font-size:18px"></span>
                       <span x-text="c.name"></span>
                     </div>
@@ -1277,7 +1297,7 @@
                 <button type="button" class="icon-dropdown-trigger" @click="iconDropdown = iconDropdown === 'payment' ? '' : 'payment'">
                   <template x-if="selectedPayment()">
                     <span class="icon-dropdown-current">
-                      <img x-show="isIconUrl(selectedPayment().icon)" :src="selectedPayment().icon" alt="">
+                      <img x-show="isIconUrl(selectedPayment().icon)" :src="isIconUrl(selectedPayment().icon) ? selectedPayment().icon : null" alt="">
                       <span x-show="!isIconUrl(selectedPayment().icon)" x-text="selectedPayment().icon || '💳'" style="font-size:18px"></span>
                       <span x-text="selectedPayment().name"></span>
                     </span>
@@ -1291,7 +1311,7 @@
                   <div class="icon-dropdown-item" :class="{ active: !subForm.payment_method_id }" @click="pickPayment('')">— не указан —</div>
                   <template x-for="p in paymentMethods" :key="p.id">
                     <div class="icon-dropdown-item" :class="{ active: String(subForm?.payment_method_id) === String(p.id) }" @click="pickPayment(p.id)">
-                      <img x-show="isIconUrl(p.icon)" :src="p.icon" alt="">
+                      <img x-show="isIconUrl(p.icon)" :src="isIconUrl(p.icon) ? p.icon : null" alt="">
                       <span x-show="!isIconUrl(p.icon)" x-text="p.icon || '💳'" style="font-size:18px"></span>
                       <span x-text="p.name"></span>
                     </div>
@@ -1354,7 +1374,7 @@
                     @change="simpleForm.data[f.key] = $event.target.value">
               <template x-for="opt in f.options || []" :key="opt.value"><option :value="opt.value" x-text="opt.label"></option></template>
             </select>
-            <label x-show="f.type === 'checkbox'" style="display:flex; align-items:center; gap:8px; cursor:pointer">
+            <label class="check-row" x-show="f.type === 'checkbox'">
               <input type="checkbox" x-model="simpleForm.data[f.key]">
               <span x-text="f.label"></span>
             </label>
@@ -1362,7 +1382,7 @@
               <!-- Текущая выбранная (превью) -->
               <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px">
                 <div class="icon-preview">
-                  <img x-show="isIconUrl(simpleForm.data[f.key])" :src="simpleForm.data[f.key]" alt="icon">
+                  <img x-show="isIconUrl(simpleForm.data[f.key])" :src="isIconUrl(simpleForm.data[f.key]) ? simpleForm.data[f.key] : null" alt="icon">
                   <span x-show="!isIconUrl(simpleForm.data[f.key])" x-text="simpleForm.data[f.key] || '?'"></span>
                 </div>
               </div>
@@ -1374,7 +1394,7 @@
                     <button type="button" class="icon-option icon-option-img"
                             :class="{ selected: simpleForm.data[f.key] === bi }"
                             @click="simpleForm.data[f.key] = bi">
-                      <img :src="bi" :alt="bi">
+                      <img :src="(bi) || null" :alt="bi">
                     </button>
                   </template>
                 </div>
@@ -1399,7 +1419,7 @@
               <template x-for="kind in channelKinds" :key="kind.id">
                 <button type="button" class="kind-tile" :class="{ active: simpleForm.data.kind === kind.id }"
                         @click="simpleForm.data.kind = kind.id">
-                  <img :src="kind.icon" :alt="kind.label">
+                  <img :src="(kind.icon) || null" :alt="kind.label">
                   <span x-text="kind.label"></span>
                 </button>
               </template>
@@ -1522,7 +1542,7 @@
             <input type="checkbox" x-model="simpleForm.data.enabled">
             <span>Канал активен</span>
           </label>
-          <label style="display:flex; gap:8px; align-items:center; cursor:pointer" x-show="['webhook','bitrix24'].includes(simpleForm.data.kind)">
+          <label class="check-row" x-show="['webhook','bitrix24'].includes(simpleForm.data.kind)">
             <input type="checkbox" x-model="simpleForm.data.ignore_ssl">
             <span>Игнорировать SSL-ошибки</span>
           </label>
@@ -1535,7 +1555,7 @@
           <div class="logo-picker">
             <div class="logo xl" :title="simpleForm?.data?.name" :class="{ 'has-logo': !!simpleForm?.data?.logo_url }">
               <template x-if="logoSrc(simpleForm?.data?.logo_url)">
-                <img :src="logoSrc(simpleForm.data.logo_url)"
+                <img :src="(logoSrc(simpleForm.data.logo_url)) || null"
                      :alt="simpleForm?.data?.name || ''"
                      @error="if (simpleForm?.data) simpleForm.data.logo_url = ''">
               </template>

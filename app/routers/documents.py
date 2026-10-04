@@ -14,6 +14,7 @@ from app.auth import get_current_user, require_manager
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 UPLOAD_DIR = "/app/data/uploads"
+MAX_DOC_SIZE = int(os.getenv("OOPS_MAX_UPLOAD_MB", "50")) * 1024 * 1024
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
@@ -38,11 +39,27 @@ def upload(
     if not sub:
         raise HTTPException(status_code=404, detail="Подписка не найдена")
 
-    safe_ext = os.path.splitext(file.filename)[1][:10]
+    safe_ext = os.path.splitext(file.filename or "")[1][:10]
     fname = f"{uuid.uuid4().hex}{safe_ext}"
     path = os.path.join(UPLOAD_DIR, fname)
-    with open(path, "wb") as f:
-        f.write(file.file.read())
+    # Пишем по частям и обрываем слишком большие файлы, чтобы не забить диск/память
+    written = 0
+    try:
+        with open(path, "wb") as f:
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > MAX_DOC_SIZE:
+                    raise HTTPException(status_code=413, detail=f"Файл больше {MAX_DOC_SIZE // (1024*1024)} МБ")
+                f.write(chunk)
+    except HTTPException:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        raise
 
     doc = Document(
         subscription_id=subscription_id,

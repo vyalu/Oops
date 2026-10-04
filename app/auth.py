@@ -1,6 +1,12 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
-from jose import JWTError, jwt
+try:
+    import jwt  # PyJWT (с 1.2.1)
+    _JWTError = jwt.PyJWTError
+except ImportError:
+    # Обновление архивом через интерфейс не переустанавливает зависимости:
+    # в старом образе ещё стоит python-jose — работаем через неё до пересборки.
+    from jose import jwt, JWTError as _JWTError
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
@@ -45,6 +51,17 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login", auto_error=False)
 
 
+MIN_PASSWORD_LEN = 6
+
+
+def check_new_password(password: str):
+    """Требования к новому паролю (существующие пароли не трогаем)."""
+    if len(password or "") < MIN_PASSWORD_LEN:
+        raise HTTPException(status_code=400, detail=f"Пароль слишком короткий (минимум {MIN_PASSWORD_LEN} символов)")
+    if password == "admin":
+        raise HTTPException(status_code=400, detail="Нельзя использовать пароль «admin»")
+
+
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
@@ -55,7 +72,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
+    expire = datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -63,7 +80,7 @@ def create_access_token(data: dict) -> str:
 def decode_token(token: str) -> Optional[dict]:
     try:
         return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
+    except _JWTError:
         return None
 
 
