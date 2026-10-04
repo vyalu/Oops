@@ -318,7 +318,13 @@ docker-compose.prod.yml   — запуск из готового образа
 
 Подробнее — в [ARCHITECTURE.md](./ARCHITECTURE.md), история изменений — в [CHANGELOG.md](./CHANGELOG.md).
 </details>
+## Поддержать проект
 
+Если панель оказалась полезной, можно поддержать разработку:
+
+[![Donate](https://img.shields.io/badge/YooMoney-%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C-8B3FFD?style=for-the-badge)](https://yoomoney.ru/to/4100116126044784)
+
+---
 ## 🙏 Благодарности
 
 - [FastAPI](https://fastapi.tiangolo.com/), [SQLAlchemy](https://www.sqlalchemy.org/), [APScheduler](https://apscheduler.readthedocs.io/) — серверная часть
